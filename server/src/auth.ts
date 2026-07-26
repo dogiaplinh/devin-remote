@@ -27,7 +27,12 @@ export class Auth {
   constructor() {
     this.username = process.env.DEVIN_REMOTE_AUTH_USER ?? "admin";
     this.password = process.env.DEVIN_REMOTE_AUTH_PASSWORD ?? "";
-    this.enabled = this.password.length > 0;
+    if (this.password.length === 0) {
+      this.password = randomBytes(24).toString("base64url");
+      // eslint-disable-next-line no-console
+      console.log(`[auth] generated one-time password: ${this.password}`);
+    }
+    this.enabled = true;
   }
 
   isAuthenticated(req: IncomingMessage): boolean {
