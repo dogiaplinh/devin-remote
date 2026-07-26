@@ -30,7 +30,7 @@ const ANIMATION_DURATION = 200;
 
 const ReasoningPreviewContext = createContext(false);
 
-const reasoningVariants = cva("aui-reasoning-root mb-4 w-full", {
+const reasoningVariants = cva("aui-reasoning-root mb-2 w-full", {
   variants: {
     variant: {
       outline: "rounded-lg border px-3 py-2",
@@ -39,7 +39,7 @@ const reasoningVariants = cva("aui-reasoning-root mb-4 w-full", {
     },
   },
   defaultVariants: {
-    variant: "outline",
+    variant: "ghost",
   },
 });
 

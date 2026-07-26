@@ -1,0 +1,16 @@
+{
+  "name": "Devin Remote",
+  "short_name": "Devin",
+  "description": "Drive your Devin CLI sessions from any browser over ACP",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#faf9f6",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
