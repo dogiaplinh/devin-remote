@@ -135,7 +135,7 @@ async function devinCheck(): Promise<DevinCheck> {
     result.installed = true;
     result.version = v.stdout.trim().split("\n")[0] ?? null;
     const s = await execFileP("devin", ["auth", "status"], { timeout: 10_000 });
-    result.authed = /logged in/i.test(s.stdout);
+    result.authed = /logged in/i.test(s.stdout) && !/not logged in/i.test(s.stdout);
     result.detail = s.stdout.trim();
   } catch (err) {
     result.detail = err instanceof Error ? err.message : String(err);
