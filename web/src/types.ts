@@ -39,6 +39,12 @@ export interface MetaResponse {
   primaryCwd: string;
 }
 
+export interface AuthStatus {
+  enabled: boolean;
+  authenticated: boolean;
+  username: string | null;
+}
+
 export interface SessionSummary {
   sessionId: string;
   cwd: string;

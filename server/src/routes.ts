@@ -9,6 +9,7 @@ import type { DevinAcp } from "./acp.js";
 import { saveUpload, serveUpload, uploadPath } from "./uploads.js";
 import { buildSessionZip } from "./export.js";
 import type { UsageRecord } from "./types.js";
+import type { Auth } from "./auth.js";
 
 export interface ApiContext {
   store: Store;
@@ -22,6 +23,7 @@ export interface ApiContext {
   sessionCwd: Map<string, string>;
   /** permission requestId → owning acp process. */
   permissionOwner: Map<string, DevinAcp>;
+  auth: Auth;
 }
 
 function json(res: ServerResponse, status: number, body: unknown) {
@@ -83,6 +85,25 @@ export async function handleApi(
   const parts = url.pathname.split("/").filter(Boolean); // ["api", ...]
 
   try {
+    if (m === "GET" && url.pathname === "/api/auth/status") {
+      return json(res, 200, ctx.auth.status(req));
+    }
+
+    if (m === "POST" && url.pathname === "/api/auth/login") {
+      const body = await readJson(req);
+      const ok = ctx.auth.login(String(body.username ?? ""), String(body.password ?? ""), res);
+      return json(
+        res,
+        ok ? 200 : 401,
+        ok ? { ...ctx.auth.status(req), authenticated: true } : { error: "invalid username or password" },
+      );
+    }
+
+    if (m === "POST" && url.pathname === "/api/auth/logout") {
+      ctx.auth.logout(req, res);
+      return json(res, 200, { ok: true });
+    }
+
     // GET /api/meta
     if (m === "GET" && url.pathname === "/api/meta") {
       return json(res, 200, {

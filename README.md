@@ -109,7 +109,9 @@ npx devin-remote --port 9000 --no-open
 
 Environment: `PORT`, `DEVIN_REMOTE_HOME` (data dir), and
 `DEVIN_REMOTE_ALLOWED_HOSTS` — comma-separated extra hostnames accepted by
-the CSRF guard (see [Security](#security)).
+the CSRF guard (see [Security](#security)). Set
+`DEVIN_REMOTE_AUTH_PASSWORD` to enable the web login (the username defaults to
+`admin`, or use `DEVIN_REMOTE_AUTH_USER`).
 
 Data lives in `~/.devin-remote/` (session aliases, settings, usage history,
 uploads). Override with `DEVIN_REMOTE_HOME`.
@@ -117,8 +119,18 @@ uploads). Override with `DEVIN_REMOTE_HOME`.
 ## Security
 
 The server binds to loopback by default. Only use `--host 0.0.0.0` on networks
-you trust (a Tailscale tailnet, a LAN behind your router) — there is no
-authentication layer yet; token auth is on the roadmap.
+you trust (a Tailscale tailnet, a LAN behind your router). For network access,
+enable the built-in login with a strong password:
+
+```bash
+DEVIN_REMOTE_AUTH_USER=admin \
+DEVIN_REMOTE_AUTH_PASSWORD='choose-a-long-password' \
+npx devin-remote --host 0.0.0.0
+```
+
+The login uses an HttpOnly, SameSite session cookie held in memory and protects
+both the API and WebSocket. Without `DEVIN_REMOTE_AUTH_PASSWORD`, local
+backwards-compatible no-login mode remains enabled.
 
 The API and WebSocket are protected by a **CSRF / DNS-rebinding guard**: a
 request's `Origin` must match its `Host` (including the port), and `Host`
