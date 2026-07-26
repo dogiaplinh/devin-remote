@@ -213,7 +213,7 @@ export interface PromptDoneResult {
 
 export type WsServerEvent =
   | { type: "config"; app: AppInfo; settings: Settings }
-  | { type: "session_update"; sessionId: string; update: SessionUpdate }
+  | { type: "session_update"; sessionId: string; update: SessionUpdate; replay?: boolean }
   | PermissionRequestEvent
   | { type: "permission_resolved"; requestId: string }
   | { type: "terminal_output"; terminalId: string; sessionId: string; data: string }

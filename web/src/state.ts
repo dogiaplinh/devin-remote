@@ -321,20 +321,24 @@ function startSessionSync(sessionId: string): void {
     }
     if (!current()) return;
     const queued = syncQueues.get(sessionId) ?? [];
-    updateSession(sessionId, (d) => {
-      d.synced = true;
-    });
     if (!openOk) {
-      syncQueues.delete(sessionId);
       for (const u of queued) applySessionUpdate(sessionId, u);
       updateSession(sessionId, (d) => {
         collapseRepeatedGenerations(d);
+        d.synced = true;
       });
     } else {
-      setTimeout(() => {
-        if (current()) syncQueues.delete(sessionId);
-      }, 500);
+      // If the server had no persisted history (fresh process), the replay is
+      // the only source of the conversation for this session.
+      if (updates.length === 0) {
+        for (const u of queued) applySessionUpdate(sessionId, u);
+      }
+      updateSession(sessionId, (d) => {
+        if (updates.length === 0) collapseRepeatedGenerations(d);
+        d.synced = true;
+      });
     }
+    syncQueues.delete(sessionId);
   })();
 }
 
@@ -801,6 +805,11 @@ export function dispatchEvent(ev: WsServerEvent): void {
       break;
     case "session_update": {
       const queue = syncQueues.get(ev.sessionId);
+      // A session load on another device replays the whole conversation.
+      // Ignore those replays for sessions we have already reconciled.
+      if (ev.replay && state.sessions[ev.sessionId]?.synced) {
+        break;
+      }
       if (queue) {
         queue.push(ev.update);
       } else {
