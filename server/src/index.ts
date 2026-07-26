@@ -297,7 +297,7 @@ httpServer.listen(PORT, HOST, async () => {
   console.log(`devin-remote ${pkg.version} listening on ${addr}`);
   if (TOKEN) {
     console.log(`🔒 token authentication enabled`);
-  } else if (net.isIP(HOST) === 0 || HOST === "0.0.0.0") {
+  } else if (net.isIP(HOST) === 0 || HOST === "0.0.0.0" || HOST === "::") {
     console.warn("⚠  listening on a non-loopback interface without --token; consider setting DEVIN_REMOTE_TOKEN");
   }
   const check = await devinCheck();
