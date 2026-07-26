@@ -63,8 +63,17 @@ export class TerminalRunner {
     const limit = params.outputByteLimit ?? MAX_OUTPUT;
     const userEnv = Object.fromEntries((params.env ?? []).map((e) => [e.name, e.value]));
     const env = ensurePath({ ...process.env, ...userEnv });
-    const command = resolveCommand(params.command, env);
-    const proc = spawn(command, params.args ?? [], {
+    // ACP sometimes sends the whole shell command in `command` with no `args`.
+    // Split it on whitespace so `spawn` receives a binary name + argument list.
+    let [bin, ...splitArgs] = params.command.trim().split(/\s+/);
+    const rawArgs = params.args ?? [];
+    const args = Array.isArray(rawArgs)
+      ? [...splitArgs, ...rawArgs]
+      : typeof rawArgs === "string"
+        ? [...splitArgs, rawArgs]
+        : splitArgs;
+    const command = resolveCommand(bin ?? params.command, env);
+    const proc = spawn(command, args, {
       cwd: params.cwd ?? defaultCwd,
       env,
       stdio: ["ignore", "pipe", "pipe"],
