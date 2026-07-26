@@ -87,8 +87,8 @@ export default function Sidebar() {
   return (
     <aside
       className={cn(
-        "fixed inset-y-0 left-0 z-40 flex w-70 flex-col border-r border-border bg-background transition-transform duration-200 ease-out",
-        "md:static md:translate-x-0",
+        "fixed left-0 bottom-0 top-[env(safe-area-inset-top)] z-40 flex w-70 flex-col border-r border-border bg-background transition-transform duration-200 ease-out",
+        "md:static md:translate-x-0 md:top-0",
         state.ui.sidebarOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full",
       )}
     >
