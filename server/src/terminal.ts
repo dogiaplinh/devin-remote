@@ -1,7 +1,36 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { CreateTerminalRequest, CreateTerminalResponse, TerminalOutputResponse, WaitForTerminalExitResponse } from "@agentclientprotocol/sdk";
 import type { DevinAcpEvents } from "./acp.js";
+
+const FALLBACK_PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin";
+
+/** macOS GUI/launchd processes often have a stripped PATH; keep common prefixes. */
+function ensurePath(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const existing = env.PATH ?? "";
+  return { ...env, PATH: existing ? `${existing}:${FALLBACK_PATH}` : FALLBACK_PATH };
+}
+
+/** Resolve a bare command name through PATH, with python -> python3 fallback. */
+function resolveCommand(command: string, env: NodeJS.ProcessEnv): string {
+  if (command.includes("/")) return command;
+  const which = (name: string): string | undefined => {
+    try {
+      return execFileSync("which", [name], { env, encoding: "utf8", timeout: 5000 }).trim();
+    } catch {
+      return undefined;
+    }
+  };
+  const found = which(command);
+  if (found) return found;
+  if (command === "python") {
+    for (const alt of ["python3", "python3.12", "python3.11", "python3.10", "python3.9"]) {
+      const a = which(alt);
+      if (a) return a;
+    }
+  }
+  return command;
+}
 
 interface Terminal {
   id: string;
@@ -32,12 +61,12 @@ export class TerminalRunner {
   ): Promise<CreateTerminalResponse> {
     const id = randomUUID();
     const limit = params.outputByteLimit ?? MAX_OUTPUT;
-    const proc = spawn(params.command, params.args ?? [], {
+    const userEnv = Object.fromEntries((params.env ?? []).map((e) => [e.name, e.value]));
+    const env = ensurePath({ ...process.env, ...userEnv });
+    const command = resolveCommand(params.command, env);
+    const proc = spawn(command, params.args ?? [], {
       cwd: params.cwd ?? defaultCwd,
-      env: {
-        ...process.env,
-        ...Object.fromEntries((params.env ?? []).map((e) => [e.name, e.value])),
-      },
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
