@@ -11,6 +11,7 @@ import { Store } from "./store.js";
 import { WsHub } from "./ws.js";
 import { SessionLog } from "./sessionlog.js";
 import { handleApi, type ApiContext } from "./routes.js";
+import { getRequestToken, isAuthenticated } from "./auth.js";
 import type { WsServerEvent } from "./types.js";
 
 const execFileP = promisify(execFile);
@@ -24,6 +25,7 @@ function argValue(flag: string): string | undefined {
 }
 const PORT = Number(argValue("--port") ?? process.env.PORT ?? 7781);
 const HOST = argValue("--host") ?? "127.0.0.1";
+const TOKEN = argValue("--token") ?? process.env.DEVIN_REMOTE_TOKEN;
 const wantOpen = args.includes("--open") || (!args.includes("--no-open") && !!process.stdout.isTTY && !process.env.SSH_CONNECTION);
 const wantVersion = args.includes("--version") || args.includes("-v");
 const wantHelp = args.includes("--help") || args.includes("-h");
@@ -42,12 +44,13 @@ if (wantHelp) {
 Usage: devin-remote [options]
 
 Options:
-  --port <port>   Port to bind (default 7781, env PORT)
-  --host <host>   Host to bind (default 127.0.0.1)
-  --open          Open the browser once listening
-  --no-open       Do not open the browser
-  --version       Print version
-  --help          Show this help
+  --port <port>     Port to bind (default 7781, env PORT)
+  --host <host>     Host to bind (default 127.0.0.1)
+  --token <token>   Bearer token required by API/WebSocket clients (env DEVIN_REMOTE_TOKEN)
+  --open            Open the browser once listening
+  --no-open         Do not open the browser
+  --version         Print version
+  --help            Show this help
 
 Requires: devin CLI on PATH and a completed 'devin auth login'.
 Data:   ~/.devin-remote (override with DEVIN_REMOTE_HOME)
@@ -157,7 +160,10 @@ const hub = new WsHub(
     app: { name: "devin-remote", version: pkg.version },
     settings: store.settings,
   }),
-  { verifyOrigin: isAllowedRequest },
+  {
+    verifyOrigin: isAllowedRequest,
+    verifyToken: (req) => isAuthenticated(req, new URL(req.url ?? "/ws", `http://${req.headers.host ?? "localhost"}`), TOKEN),
+  },
 );
 
 const manager = new AcpManager({
@@ -200,6 +206,7 @@ const ctx: ApiContext = {
   devinCheck,
   sessionCwd,
   permissionOwner,
+  token: TOKEN,
 };
 
 // ---- static files ----------------------------------------------------------
@@ -271,6 +278,7 @@ httpServer.on("request", (req, res) => {
         );
         return;
       }
+      // /api/auth is handled inside routes.ts and must be reachable without a token.
       void handleApi(ctx, req, res, url);
     } else {
       serveStatic(req, res, url);
@@ -287,6 +295,11 @@ httpServer.on("request", (req, res) => {
 httpServer.listen(PORT, HOST, async () => {
   const addr = `http://${HOST}:${PORT}`;
   console.log(`devin-remote ${pkg.version} listening on ${addr}`);
+  if (TOKEN) {
+    console.log(`🔒 token authentication enabled`);
+  } else if (net.isIP(HOST) === 0 || HOST === "0.0.0.0") {
+    console.warn("⚠  listening on a non-loopback interface without --token; consider setting DEVIN_REMOTE_TOKEN");
+  }
   const check = await devinCheck();
   if (!check.installed) {
     console.warn("⚠  devin CLI not found on PATH — install it first: https://docs.devin.ai/cli");

@@ -104,6 +104,14 @@ export interface UiState {
   modelPickerOpen: boolean;
 }
 
+export interface AuthState {
+  enabled: boolean;
+  authenticated: boolean;
+  token: string | null;
+  checking: boolean;
+  error: string | null;
+}
+
 export interface AppState {
   meta: MetaResponse | null;
   settings: Settings;
@@ -116,6 +124,7 @@ export interface AppState {
   agentLog: AgentLogEntry[];
   notice: string | null;
   composerInject: { text: string; seq: number } | null;
+  auth: AuthState;
   ui: UiState;
 }
 

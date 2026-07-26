@@ -9,6 +9,7 @@ import type { DevinAcp } from "./acp.js";
 import { saveUpload, serveUpload, uploadPath } from "./uploads.js";
 import { buildSessionZip } from "./export.js";
 import type { UsageRecord } from "./types.js";
+import { getRequestToken, isAuthenticated } from "./auth.js";
 
 export interface ApiContext {
   store: Store;
@@ -22,6 +23,8 @@ export interface ApiContext {
   sessionCwd: Map<string, string>;
   /** permission requestId → owning acp process. */
   permissionOwner: Map<string, DevinAcp>;
+  /** Optional bearer token; when set, API calls must present it. */
+  token: string | undefined;
 }
 
 function json(res: ServerResponse, status: number, body: unknown) {
@@ -83,6 +86,25 @@ export async function handleApi(
   const parts = url.pathname.split("/").filter(Boolean); // ["api", ...]
 
   try {
+    // Auth status / verification endpoint (unprotected so the login UI can reach it).
+    if (url.pathname === "/api/auth") {
+      if (m === "GET") {
+        if (!ctx.token) return json(res, 200, { enabled: false });
+        const provided = getRequestToken(req, url);
+        return json(res, 200, { enabled: true, valid: provided === ctx.token });
+      }
+      if (m === "POST") {
+        const body = await readJson(req);
+        if (!ctx.token) return json(res, 200, { enabled: false });
+        return json(res, 200, { enabled: true, valid: String(body.token ?? "") === ctx.token });
+      }
+    }
+
+    // All other API endpoints require the configured token.
+    if (!isAuthenticated(req, url, ctx.token)) {
+      return json(res, 401, { error: "authentication required", auth: true });
+    }
+
     // GET /api/meta
     if (m === "GET" && url.pathname === "/api/meta") {
       return json(res, 200, {

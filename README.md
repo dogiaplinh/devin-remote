@@ -104,12 +104,13 @@ npx devin-remote --port 9000 --no-open
 | ----------- | ----------- | ------------------------------------ |
 | `--port`    | `7781`      | Port to bind (env `PORT`)            |
 | `--host`    | `127.0.0.1` | Host to bind                         |
+| `--token`   |             | Bearer token required by clients (env `DEVIN_REMOTE_TOKEN`) |
 | `--open` / `--no-open` | auto | Open the browser on start   |
 | `--version` |             | Print version                        |
 
-Environment: `PORT`, `DEVIN_REMOTE_HOME` (data dir), and
-`DEVIN_REMOTE_ALLOWED_HOSTS` — comma-separated extra hostnames accepted by
-the CSRF guard (see [Security](#security)).
+Environment: `PORT`, `DEVIN_REMOTE_HOME` (data dir),
+`DEVIN_REMOTE_ALLOWED_HOSTS` (CSRF guard allowlist) and
+`DEVIN_REMOTE_TOKEN` (bearer token for API/WebSocket access).
 
 Data lives in `~/.devin-remote/` (session aliases, settings, usage history,
 uploads). Override with `DEVIN_REMOTE_HOME`.
@@ -117,14 +118,21 @@ uploads). Override with `DEVIN_REMOTE_HOME`.
 ## Security
 
 The server binds to loopback by default. Only use `--host 0.0.0.0` on networks
-you trust (a Tailscale tailnet, a LAN behind your router) — there is no
-authentication layer yet; token auth is on the roadmap.
+you trust (a Tailscale tailnet, a LAN behind your router). When exposing the
+server, set a token with `--token` or `DEVIN_REMOTE_TOKEN`; the web UI will
+prompt for it and include it on all API and WebSocket requests.
 
 The API and WebSocket are protected by a **CSRF / DNS-rebinding guard**: a
 request's `Origin` must match its `Host` (including the port), and `Host`
 must be a loopback name, the machine's hostname, an IP literal, or an
 explicitly allowed name. This stops arbitrary web pages — including apps on
 other ports of the same machine — from driving your Devin.
+
+To run with a token on a trusted network:
+
+```bash
+npx devin-remote --host 0.0.0.0 --token your-secret-token
+```
 
 If you access Devin Remote through a **reverse proxy or tunnel** (nginx,
 Caddy, `tailscale serve`, a MagicDNS name), allow its hostname:
@@ -171,7 +179,6 @@ v4, KaTeX, Mermaid, xterm.js).
 
 ## Roadmap
 
-- Token authentication for `--host` exposure
 - Interactive terminal input
 - Devin Cloud (remote) sessions
 - Windows support (today: macOS, Linux, WSL)

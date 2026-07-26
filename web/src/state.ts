@@ -1,9 +1,11 @@
 import { useSyncExternalStore } from "react";
-import { api } from "./api";
+import { api, getAuthToken, setAuthToken } from "./api";
 import { notifyDesktop, soundComplete, soundNotify } from "./sound";
+import { restartWs } from "./ws";
 import type {
   Attachment,
   AppState,
+  AuthState,
   ChatMessage,
   PendingPermission,
   SessionState,
@@ -49,6 +51,13 @@ let state: AppState = {
   agentLog: [],
   notice: null,
   composerInject: null,
+  auth: {
+    enabled: false,
+    authenticated: false,
+    token: getAuthToken(),
+    checking: false,
+    error: null,
+  },
   ui: {
     sidebarOpen: false,
     modal: null,
@@ -191,6 +200,58 @@ export async function refreshMeta(): Promise<MetaResponse | null> {
     showNotice(err instanceof Error ? err.message : "failed to load server meta");
     return null;
   }
+}
+
+export async function checkAuth(): Promise<AuthState> {
+  const token = getAuthToken();
+  setState({ auth: { ...state.auth, checking: true, error: null } });
+  try {
+    const status = token ? await api.verifyToken(token) : await api.authStatus();
+    if (!status.enabled) {
+      const next: AuthState = { enabled: false, authenticated: true, token: null, checking: false, error: null };
+      setAuthToken(null);
+      setState({ auth: next });
+      return next;
+    }
+    if (status.valid) {
+      const next: AuthState = { enabled: true, authenticated: true, token: token ?? "", checking: false, error: null };
+      setAuthToken(token ?? "");
+      setState({ auth: next });
+      return next;
+    }
+    setAuthToken(null);
+    setState({ auth: { enabled: true, authenticated: false, token: null, checking: false, error: null } });
+    return state.auth;
+  } catch (err) {
+    const error = err instanceof Error ? err.message : "auth check failed";
+    setState({ auth: { ...state.auth, checking: false, error } });
+    return state.auth;
+  }
+}
+
+export async function login(token: string): Promise<boolean> {
+  setState({ auth: { ...state.auth, checking: true, error: null } });
+  try {
+    const status = await api.verifyToken(token);
+    if (status.valid) {
+      setAuthToken(token);
+      setState({ auth: { enabled: true, authenticated: true, token, checking: false, error: null } });
+      restartWs();
+      void refreshMeta();
+      void refreshSessions();
+      return true;
+    }
+    setState({ auth: { ...state.auth, checking: false, error: "invalid token" } });
+    return false;
+  } catch (err) {
+    setState({ auth: { ...state.auth, checking: false, error: err instanceof Error ? err.message : "login failed" } });
+    return false;
+  }
+}
+
+export function logout(): void {
+  setAuthToken(null);
+  setState({ auth: { ...state.auth, authenticated: false, token: null, error: null } });
 }
 
 /**

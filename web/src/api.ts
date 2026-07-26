@@ -9,10 +9,30 @@ import type {
   UsageResponse,
 } from "./types";
 
+export interface AuthStatus {
+  enabled: boolean;
+  valid?: boolean;
+}
+
+let authToken: string | null = sessionStorage.getItem("devin-remote-token");
+
+export function setAuthToken(token: string | null): void {
+  authToken = token;
+  if (token) sessionStorage.setItem("devin-remote-token", token);
+  else sessionStorage.removeItem("devin-remote-token");
+}
+
+export function getAuthToken(): string | null {
+  return authToken;
+}
+
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["content-type"] = "application/json";
+  if (authToken) headers.authorization = `Bearer ${authToken}`;
   const res = await fetch(url, {
     method,
-    headers: body !== undefined ? { "content-type": "application/json" } : undefined,
+    headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
@@ -29,6 +49,9 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
 }
 
 export const api = {
+  authStatus: () => req<AuthStatus>("GET", "/api/auth"),
+  verifyToken: (token: string) => req<AuthStatus>("POST", "/api/auth", { token }),
+
   meta: () => req<MetaResponse>("GET", "/api/meta"),
 
   listSessions: () => req<{ sessions: SessionSummary[] }>("GET", "/api/sessions"),
@@ -57,15 +80,21 @@ export const api = {
   history: (sessionId: string) =>
     req<{ updates: SessionUpdate[] }>("GET", `/api/sessions/${encodeURIComponent(sessionId)}/history`),
 
-  exportUrl: (sessionId: string) => `/api/sessions/${encodeURIComponent(sessionId)}/export`,
+  exportUrl: (sessionId: string) => {
+    const token = getAuthToken();
+    const qs = token ? `?token=${encodeURIComponent(token)}` : "";
+    return `/api/sessions/${encodeURIComponent(sessionId)}/export${qs}`;
+  },
 
   resolvePermission: (requestId: string, optionId: string | null) =>
     req<{ ok: boolean }>("POST", `/api/permissions/${encodeURIComponent(requestId)}`, { optionId }),
 
   upload: async (file: Blob, filename: string): Promise<UploadMeta> => {
+    const headers: Record<string, string> = { "content-type": file.type || "application/octet-stream" };
+    if (authToken) headers.authorization = `Bearer ${authToken}`;
     const res = await fetch(`/api/uploads?filename=${encodeURIComponent(filename)}`, {
       method: "POST",
-      headers: { "content-type": file.type || "application/octet-stream" },
+      headers,
       body: file,
     });
     if (!res.ok) throw new Error(`upload failed → ${res.status}`);

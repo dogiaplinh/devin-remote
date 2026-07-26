@@ -1,6 +1,8 @@
-import { lazy, Suspense, useEffect } from "react";
-import { refreshMeta, refreshSessions, setUi, useStore, hideNotice } from "./state";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { refreshMeta, refreshSessions, setUi, useStore, hideNotice, checkAuth, login } from "./state";
 import { startWs } from "./ws";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import Sidebar from "./components/Sidebar";
 import ChatView from "./components/ChatView";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -26,14 +28,27 @@ function applyTheme(theme: "dark" | "light" | "system"): void {
 
 export default function App() {
   const state = useStore();
+  const [tokenInput, setTokenInput] = useState("");
 
   useEffect(() => {
-    void refreshMeta();
-    void refreshSessions();
-    startWs();
+    void checkAuth().then((auth) => {
+      if (auth.authenticated) {
+        void refreshMeta();
+        void refreshSessions();
+        startWs();
+      }
+    });
     // Replace the inline boot splash with the React tree.
     document.getElementById("dc-boot")?.remove();
   }, []);
+
+  useEffect(() => {
+    if (state.auth.authenticated) {
+      void refreshMeta();
+      void refreshSessions();
+      startWs();
+    }
+  }, [state.auth.authenticated]);
 
   useEffect(() => {
     applyTheme(state.settings.theme ?? "light");
@@ -58,6 +73,42 @@ export default function App() {
   }, [state.ui.modal]);
 
   const active = state.activeSessionId ? state.sessions[state.activeSessionId] ?? null : null;
+
+  if (state.auth.checking) {
+    return (
+      <div className="flex h-full items-center justify-center bg-background text-foreground">
+        <div className="text-muted-foreground">Checking authentication…</div>
+      </div>
+    );
+  }
+
+  if (state.auth.enabled && !state.auth.authenticated) {
+    return (
+      <div className="flex h-full items-center justify-center bg-background p-4 text-foreground">
+        <form
+          className="flex w-full max-w-sm flex-col gap-4 rounded-xl border border-border bg-card p-6 shadow-lg"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void login(tokenInput);
+          }}
+        >
+          <h1 className="text-lg font-semibold">Devin Remote</h1>
+          <p className="text-sm text-muted-foreground">Enter the server token to continue.</p>
+          <Input
+            type="password"
+            placeholder="Token"
+            value={tokenInput}
+            onChange={(e) => setTokenInput(e.target.value)}
+            autoFocus
+          />
+          {state.auth.error && <p className="text-sm text-destructive">{state.auth.error}</p>}
+          <Button type="submit" disabled={!tokenInput.trim() || state.auth.checking}>
+            Sign in
+          </Button>
+        </form>
+      </div>
+    );
+  }
 
   return (
     <TooltipProvider delayDuration={300}>

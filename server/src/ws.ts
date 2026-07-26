@@ -11,7 +11,7 @@ export class WsHub {
   constructor(
     server: Server,
     private hello: () => WsServerEvent,
-    opts?: { verifyOrigin?: (req: IncomingMessage) => boolean },
+    opts?: { verifyOrigin?: (req: IncomingMessage) => boolean; verifyToken?: (req: IncomingMessage) => boolean },
   ) {
     this.wss = new WebSocketServer({
       server,
@@ -19,7 +19,12 @@ export class WsHub {
       // Same CSRF/DNS-rebinding guard as the HTTP API — a WS connection can
       // send prompts and approve permissions, so it must not be reachable
       // from arbitrary web pages.
-      verifyClient: (info: { req: IncomingMessage }) => opts?.verifyOrigin?.(info.req) ?? true,
+      // Additionally, when a token is configured, the WS handshake must present it.
+      verifyClient: (info: { req: IncomingMessage }) => {
+        if (opts?.verifyOrigin && !opts.verifyOrigin(info.req)) return false;
+        if (opts?.verifyToken && !opts.verifyToken(info.req)) return false;
+        return true;
+      },
     });
     this.wss.on("connection", (ws) => {
       const client = ws as WebSocket & { isAlive?: boolean };

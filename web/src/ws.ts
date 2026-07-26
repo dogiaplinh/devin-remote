@@ -1,4 +1,5 @@
 import { dispatchEvent, refreshSessions, resyncActiveSession, setWsConnected } from "./state";
+import { getAuthToken } from "./api";
 import type { WsServerEvent } from "./types";
 
 let ws: WebSocket | null = null;
@@ -8,12 +9,29 @@ let attempts = 0;
 
 function wsUrl(): string {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${location.host}/ws`;
+  const token = getAuthToken();
+  const qs = token ? `?token=${encodeURIComponent(token)}` : "";
+  return `${proto}//${location.host}/ws${qs}`;
 }
 
 /** Start the single WS client with auto-reconnect (exponential backoff). Idempotent. */
 export function startWs(): void {
   if (started) return;
+  started = true;
+  connect();
+}
+
+/** Force a reconnect so a newly-set token is sent on the handshake. */
+export function restartWs(): void {
+  if (ws) {
+    ws.onclose = null;
+    ws.close();
+    ws = null;
+  }
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
   started = true;
   connect();
 }
