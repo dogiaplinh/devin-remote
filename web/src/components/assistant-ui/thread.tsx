@@ -455,9 +455,6 @@ const AssistantMessage: FC = () => {
           }}
         />
       </div>
-      <div className="ms-1 mt-1 flex min-h-7 items-center">
-        <AssistantActionBar />
-      </div>
     </MessagePrimitive.Root>
   );
 };

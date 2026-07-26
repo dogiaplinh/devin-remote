@@ -163,9 +163,9 @@ const hub = new WsHub(
 );
 
 const manager = new AcpManager({
-  onSessionUpdate: (sessionId, update) => {
+  onSessionUpdate: (sessionId, update, replay) => {
     sessionLog.append(sessionId, update as Record<string, unknown>);
-    hub.broadcast({ type: "session_update", sessionId, update });
+    hub.broadcast({ type: "session_update", sessionId, update, replay });
   },
   onAgentLog: (sessionId, channel, message, level) => {
     hub.broadcast({ type: "agent_log", sessionId, channel, message, level });

@@ -8,7 +8,7 @@ import * as acp from "@agentclientprotocol/sdk";
 import type { TerminalRunner } from "./terminal.js";
 
 export interface DevinAcpEvents {
-  onSessionUpdate: (sessionId: string, update: unknown) => void;
+  onSessionUpdate: (sessionId: string, update: unknown, replay: boolean) => void;
   onAgentLog: (sessionId: string, channel: string, message: string, level: string) => void;
   onPermissionRequest: (
     requestId: string,
@@ -41,21 +41,26 @@ export class DevinAcp {
   readonly cwd: string;
   capabilities: acp.InitializeResponse | null = null;
   exited = false;
+  /** Sessions currently being loaded; their updates are historical replays, not live. */
+  private replaying: Set<string>;
 
   private constructor(
     cwd: string,
     proc: ChildProcess,
     conn: acp.ClientSideConnection,
     pendingPermissions: Map<string, PendingPermission>,
+    replaying: Set<string>,
   ) {
     this.cwd = cwd;
     this.proc = proc;
     this.conn = conn;
     this.pendingPermissions = pendingPermissions;
+    this.replaying = replaying;
   }
 
   static async start(cwd: string, terminal: TerminalRunner, ev: DevinAcpEvents): Promise<DevinAcp> {
     const pendingPermissions = new Map<string, PendingPermission>();
+    const replaying = new Set<string>();
     const proc = spawn("devin", ["acp"], {
       cwd,
       stdio: ["pipe", "pipe", "inherit"],
@@ -64,7 +69,7 @@ export class DevinAcp {
 
     const client: acp.Client = {
       sessionUpdate: (params) => {
-        ev.onSessionUpdate(params.sessionId, params.update);
+        ev.onSessionUpdate(params.sessionId, params.update, replaying.has(params.sessionId));
       },
 
       requestPermission: (params) => {
@@ -130,7 +135,7 @@ export class DevinAcp {
     const stream = acp.ndJsonStream(input, output);
     const conn = new acp.ClientSideConnection(() => clientWithExt, stream);
 
-    const self = new DevinAcp(cwd, proc, conn, pendingPermissions);
+    const self = new DevinAcp(cwd, proc, conn, pendingPermissions, replaying);
     let handshaken = false;
     let failStart: (err: Error) => void = () => {};
     const startFailed = new Promise<never>((_, reject) => {
@@ -202,7 +207,12 @@ export class DevinAcp {
   }
 
   async loadSession(sessionId: string, cwd: string) {
-    return this.conn.loadSession({ sessionId, cwd, mcpServers: [] });
+    this.replaying.add(sessionId);
+    try {
+      return await this.conn.loadSession({ sessionId, cwd, mcpServers: [] });
+    } finally {
+      this.replaying.delete(sessionId);
+    }
   }
 
   async listSessions(cursor?: string) {
