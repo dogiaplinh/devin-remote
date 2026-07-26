@@ -12,6 +12,7 @@ import { WsHub } from "./ws.js";
 import { SessionLog } from "./sessionlog.js";
 import { handleApi, type ApiContext } from "./routes.js";
 import type { WsServerEvent } from "./types.js";
+import { Auth } from "./auth.js";
 
 const execFileP = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -143,6 +144,7 @@ async function devinCheck(): Promise<DevinCheck> {
 
 // ---- wiring ----------------------------------------------------------------
 const store = new Store();
+const auth = new Auth();
 const sessionLog = new SessionLog();
 const sessionCwd = new Map<string, string>();
 const permissionOwner = new Map<string, import("./acp.js").DevinAcp>();
@@ -157,7 +159,7 @@ const hub = new WsHub(
     app: { name: "devin-remote", version: pkg.version },
     settings: store.settings,
   }),
-  { verifyOrigin: isAllowedRequest },
+  { verifyOrigin: (req) => isAllowedRequest(req) && auth.isAuthenticated(req) },
 );
 
 const manager = new AcpManager({
@@ -200,6 +202,7 @@ const ctx: ApiContext = {
   devinCheck,
   sessionCwd,
   permissionOwner,
+  auth,
 };
 
 // ---- static files ----------------------------------------------------------
@@ -269,6 +272,12 @@ httpServer.on("request", (req, res) => {
             error: "forbidden origin/host — set DEVIN_REMOTE_ALLOWED_HOSTS for reverse proxies and tunnels",
           }),
         );
+        return;
+      }
+      const publicAuthRoute =
+        url.pathname === "/api/auth/status" || url.pathname === "/api/auth/login";
+      if (!publicAuthRoute && !auth.isAuthenticated(req)) {
+        res.writeHead(401, { "content-type": "application/json" }).end(JSON.stringify({ error: "authentication required" }));
         return;
       }
       void handleApi(ctx, req, res, url);

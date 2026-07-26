@@ -7,6 +7,7 @@ import type {
   SessionUpdate,
   UploadMeta,
   UsageResponse,
+  AuthStatus,
 } from "./types";
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -29,6 +30,9 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
 }
 
 export const api = {
+  authStatus: () => req<AuthStatus>("GET", "/api/auth/status"),
+  login: (username: string, password: string) => req<AuthStatus>("POST", "/api/auth/login", { username, password }),
+  logout: () => req<{ ok: boolean }>("POST", "/api/auth/logout"),
   meta: () => req<MetaResponse>("GET", "/api/meta"),
 
   listSessions: () => req<{ sessions: SessionSummary[] }>("GET", "/api/sessions"),

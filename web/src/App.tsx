@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { refreshMeta, refreshSessions, setUi, useStore, hideNotice } from "./state";
 import { startWs } from "./ws";
 import Sidebar from "./components/Sidebar";
@@ -6,6 +6,9 @@ import ChatView from "./components/ChatView";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { XIcon } from "lucide-react";
+import { api } from "./api";
+import LoginPage from "./components/LoginPage";
+import type { AuthStatus } from "./types";
 
 const TerminalPanel = lazy(() => import("./components/TerminalPanel"));
 const AgentLogDrawer = lazy(() => import("./components/AgentLogDrawer"));
@@ -26,13 +29,19 @@ function applyTheme(theme: "dark" | "light" | "system"): void {
 
 export default function App() {
   const state = useStore();
+  const [auth, setAuth] = useState<AuthStatus | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    void refreshMeta();
-    void refreshSessions();
-    startWs();
-    // Replace the inline boot splash with the React tree.
-    document.getElementById("dc-boot")?.remove();
+    void api.authStatus().then((status) => {
+      setAuth(status);
+      if (status.authenticated) {
+        void refreshMeta();
+        void refreshSessions();
+        startWs();
+      }
+      document.getElementById("dc-boot")?.remove();
+    }).catch((error: unknown) => setAuthError(error instanceof Error ? error.message : "Unable to connect"));
   }, []);
 
   useEffect(() => {
@@ -56,6 +65,29 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [state.ui.modal]);
+
+  if (authError) {
+    return <main className="flex h-full items-center justify-center text-sm text-destructive">{authError}</main>;
+  }
+  if (!auth) return null;
+  if (auth.enabled && !auth.authenticated) {
+    return (
+      <LoginPage
+        onLogin={async (username, password) => {
+          try {
+            const status = await api.login(username, password);
+            setAuth(status);
+            void refreshMeta();
+            void refreshSessions();
+            startWs();
+            return null;
+          } catch (error) {
+            return error instanceof Error ? error.message : "Unable to sign in";
+          }
+        }}
+      />
+    );
+  }
 
   const active = state.activeSessionId ? state.sessions[state.activeSessionId] ?? null : null;
 
