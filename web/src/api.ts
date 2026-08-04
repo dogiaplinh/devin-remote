@@ -10,10 +10,40 @@ import type {
   AuthStatus,
 } from "./types";
 
+export const AUTH_TOKEN_KEY = "devin-remote-auth-token";
+
+export function getAuthToken(): string | null {
+  try {
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function saveAuthToken(token: string): void {
+  try {
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
+  } catch {
+    /* localStorage may be unavailable in restricted browser contexts */
+  }
+}
+
+export function clearAuthToken(): void {
+  try {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+  } catch {
+    /* localStorage may be unavailable in restricted browser contexts */
+  }
+}
+
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const token = getAuthToken();
   const res = await fetch(url, {
     method,
-    headers: body !== undefined ? { "content-type": "application/json" } : undefined,
+    headers: {
+      ...(body !== undefined ? { "content-type": "application/json" } : {}),
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
@@ -67,9 +97,13 @@ export const api = {
     req<{ ok: boolean }>("POST", `/api/permissions/${encodeURIComponent(requestId)}`, { optionId }),
 
   upload: async (file: Blob, filename: string): Promise<UploadMeta> => {
+    const token = getAuthToken();
     const res = await fetch(`/api/uploads?filename=${encodeURIComponent(filename)}`, {
       method: "POST",
-      headers: { "content-type": file.type || "application/octet-stream" },
+      headers: {
+        "content-type": file.type || "application/octet-stream",
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
       body: file,
     });
     if (!res.ok) throw new Error(`upload failed → ${res.status}`);

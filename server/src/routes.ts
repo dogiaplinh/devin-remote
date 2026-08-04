@@ -91,11 +91,13 @@ export async function handleApi(
 
     if (m === "POST" && url.pathname === "/api/auth/login") {
       const body = await readJson(req);
-      const ok = ctx.auth.login(String(body.username ?? ""), String(body.password ?? ""), res);
+      const token = ctx.auth.login(String(body.username ?? ""), String(body.password ?? ""), res);
       return json(
         res,
-        ok ? 200 : 401,
-        ok ? { ...ctx.auth.status(req), authenticated: true } : { error: "invalid username or password" },
+        token ? 200 : 401,
+        token
+          ? { ...ctx.auth.status(req), authenticated: true, token }
+          : { error: "invalid username or password" },
       );
     }
 

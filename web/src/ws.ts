@@ -18,6 +18,18 @@ export function startWs(): void {
   connect();
 }
 
+export function stopWs(): void {
+  started = false;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  attempts = 0;
+  ws?.close();
+  ws = null;
+  setWsConnected(false);
+}
+
 function connect(): void {
   try {
     ws = new WebSocket(wsUrl());
@@ -45,7 +57,7 @@ function connect(): void {
   ws.onclose = () => {
     setWsConnected(false);
     ws = null;
-    scheduleReconnect();
+    if (started) scheduleReconnect();
   };
   ws.onerror = () => {
     ws?.close();

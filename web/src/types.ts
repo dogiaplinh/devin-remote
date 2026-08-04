@@ -43,6 +43,7 @@ export interface AuthStatus {
   enabled: boolean;
   authenticated: boolean;
   username: string | null;
+  token?: string;
 }
 
 export interface SessionSummary {

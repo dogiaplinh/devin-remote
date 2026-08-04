@@ -34,7 +34,7 @@ export function sessionLabel(s: SessionState): string {
   return s.alias || s.title || `session ${s.sessionId.slice(0, 8)}`;
 }
 
-export default function Sidebar() {
+export default function Sidebar({ onLogout }: { onLogout: () => void }) {
   const state = useStore();
   const [cwdInput, setCwdInput] = useState("");
   const [filter, setFilter] = useState("");

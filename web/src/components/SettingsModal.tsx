@@ -74,7 +74,7 @@ function Segmented<T extends string>({
   );
 }
 
-export default function SettingsModal() {
+export default function SettingsModal({ onLogout }: { onLogout: () => Promise<void> }) {
   const state = useStore();
   const s = state.settings;
   const meta = state.meta;
@@ -224,6 +224,12 @@ export default function SettingsModal() {
               <code className="rounded bg-muted px-1 py-0.5 font-mono">~/.devin-remote</code> — override with{" "}
               <code className="rounded bg-muted px-1 py-0.5 font-mono">DEVIN_REMOTE_HOME</code>.
             </p>
+          </Section>
+
+          <Section title="Account">
+            <Button className="w-full" variant="outline" onClick={() => void onLogout()}>
+              Log out
+            </Button>
           </Section>
         </div>
       </DialogContent>

@@ -12,6 +12,11 @@ function parseCookies(header: string | undefined): Map<string, string> {
   return cookies;
 }
 
+function bearerToken(header: string | undefined): string | null {
+  const match = header?.match(/^Bearer\s+(.+)$/i);
+  return match?.[1] ?? null;
+}
+
 function sameSecret(left: string, right: string): boolean {
   const a = Buffer.from(left);
   const b = Buffer.from(right);
@@ -37,23 +42,23 @@ export class Auth {
 
   isAuthenticated(req: IncomingMessage): boolean {
     if (!this.enabled) return true;
-    const token = parseCookies(req.headers.cookie).get(COOKIE_NAME);
+    const token = bearerToken(req.headers.authorization) ?? parseCookies(req.headers.cookie).get(COOKIE_NAME);
     return token ? this.sessions.has(token) : false;
   }
 
-  login(username: string, password: string, res: ServerResponse): boolean {
-    if (!this.enabled || username !== this.username || !sameSecret(password, this.password)) return false;
+  login(username: string, password: string, res: ServerResponse): string | null {
+    if (!this.enabled || username !== this.username || !sameSecret(password, this.password)) return null;
     const token = randomBytes(32).toString("base64url");
     this.sessions.add(token);
     res.setHeader(
       "set-cookie",
-      `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict`,
+      `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Strict`,
     );
-    return true;
+    return token;
   }
 
   logout(req: IncomingMessage, res: ServerResponse): void {
-    const token = parseCookies(req.headers.cookie).get(COOKIE_NAME);
+    const token = bearerToken(req.headers.authorization) ?? parseCookies(req.headers.cookie).get(COOKIE_NAME);
     if (token) this.sessions.delete(token);
     res.setHeader("set-cookie", `${COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict`);
   }

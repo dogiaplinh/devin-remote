@@ -1,12 +1,12 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { refreshMeta, refreshSessions, setUi, useStore, hideNotice } from "./state";
-import { startWs } from "./ws";
+import { startWs, stopWs } from "./ws";
 import Sidebar from "./components/Sidebar";
 import ChatView from "./components/ChatView";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { XIcon } from "lucide-react";
-import { api } from "./api";
+import { api, clearAuthToken, saveAuthToken } from "./api";
 import LoginPage from "./components/LoginPage";
 import type { AuthStatus } from "./types";
 
@@ -35,6 +35,7 @@ export default function App() {
   useEffect(() => {
     void api.authStatus().then((status) => {
       setAuth(status);
+      if (!status.authenticated) clearAuthToken();
       if (status.authenticated) {
         void refreshMeta();
         void refreshSessions();
@@ -70,12 +71,25 @@ export default function App() {
     return <main className="flex h-full items-center justify-center text-sm text-destructive">{authError}</main>;
   }
   if (!auth) return null;
+
+  const logout = async () => {
+    try {
+      await api.logout();
+    } finally {
+      clearAuthToken();
+      stopWs();
+      setUi({ modal: null });
+      setAuth({ ...auth, authenticated: false, token: undefined });
+    }
+  };
+
   if (auth.enabled && !auth.authenticated) {
     return (
       <LoginPage
         onLogin={async (username, password) => {
           try {
             const status = await api.login(username, password);
+            if (status.token) saveAuthToken(status.token);
             setAuth(status);
             void refreshMeta();
             void refreshSessions();
@@ -101,7 +115,7 @@ export default function App() {
             onClick={() => setUi({ sidebarOpen: false })}
           />
         )}
-        <Sidebar />
+        <Sidebar onLogout={() => void logout()} />
         <div className="flex min-w-0 flex-1 flex-col">
           <ChatView session={active} />
           <Suspense fallback={<DrawerSkeleton />}>
@@ -110,7 +124,7 @@ export default function App() {
           </Suspense>
         </div>
         <Suspense fallback={null}>
-          {state.ui.modal === "settings" && <SettingsModal />}
+          {state.ui.modal === "settings" && <SettingsModal onLogout={logout} />}
           {state.ui.modal === "usage" && <UsagePanel />}
           {state.ui.modal === "palette" && <CommandPalette />}
         </Suspense>

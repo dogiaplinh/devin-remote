@@ -275,7 +275,7 @@ httpServer.on("request", (req, res) => {
         return;
       }
       const publicAuthRoute =
-        url.pathname === "/api/auth/status" || url.pathname === "/api/auth/login";
+        url.pathname === "/api/auth/status" || url.pathname === "/api/auth/login" || url.pathname === "/api/auth/logout";
       if (!publicAuthRoute && !auth.isAuthenticated(req)) {
         res.writeHead(401, { "content-type": "application/json" }).end(JSON.stringify({ error: "authentication required" }));
         return;
