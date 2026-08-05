@@ -6,6 +6,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import * as acp from "@agentclientprotocol/sdk";
 import type { TerminalRunner } from "./terminal.js";
+import { DEFAULT_AGENT, type AgentDef } from "./agents.js";
 
 export interface DevinAcpEvents {
   onSessionUpdate: (sessionId: string, update: unknown) => void;
@@ -26,8 +27,9 @@ export interface DevinAcpEvents {
 let permissionSeq = 0;
 
 /**
- * One `devin acp` child process bound to a workspace directory, with a typed
- * ACP client connection on top of its stdio.
+ * One ACP agent child process (`devin acp`, `prime-agent --mode acp`, ...)
+ * bound to a workspace directory, with a typed ACP client connection on top
+ * of its stdio.
  */
 type PendingPermission = {
   resolve: (r: acp.RequestPermissionResponse) => void;
@@ -39,24 +41,32 @@ export class DevinAcp {
   private conn: acp.ClientSideConnection;
   private pendingPermissions: Map<string, PendingPermission>;
   readonly cwd: string;
+  readonly agent: AgentDef;
   capabilities: acp.InitializeResponse | null = null;
   exited = false;
 
   private constructor(
     cwd: string,
+    agent: AgentDef,
     proc: ChildProcess,
     conn: acp.ClientSideConnection,
     pendingPermissions: Map<string, PendingPermission>,
   ) {
     this.cwd = cwd;
+    this.agent = agent;
     this.proc = proc;
     this.conn = conn;
     this.pendingPermissions = pendingPermissions;
   }
 
-  static async start(cwd: string, terminal: TerminalRunner, ev: DevinAcpEvents): Promise<DevinAcp> {
+  static async start(
+    cwd: string,
+    terminal: TerminalRunner,
+    ev: DevinAcpEvents,
+    agent: AgentDef = DEFAULT_AGENT,
+  ): Promise<DevinAcp> {
     const pendingPermissions = new Map<string, PendingPermission>();
-    const proc = spawn("devin", ["acp"], {
+    const proc = spawn(agent.command, agent.args, {
       cwd,
       stdio: ["pipe", "pipe", "inherit"],
       env: process.env,
@@ -130,7 +140,7 @@ export class DevinAcp {
     const stream = acp.ndJsonStream(input, output);
     const conn = new acp.ClientSideConnection(() => clientWithExt, stream);
 
-    const self = new DevinAcp(cwd, proc, conn, pendingPermissions);
+    const self = new DevinAcp(cwd, agent, proc, conn, pendingPermissions);
     let handshaken = false;
     let failStart: (err: Error) => void = () => {};
     const startFailed = new Promise<never>((_, reject) => {
@@ -146,7 +156,7 @@ export class DevinAcp {
       }
       self.pendingPermissions.clear();
       if (!handshaken) {
-        failStart(err ?? new Error(`devin acp exited (code ${code}) before the ACP handshake completed`));
+        failStart(err ?? new Error(`${agent.command} exited (code ${code}) before the ACP handshake completed`));
       }
       ev.onExit(code);
     };
@@ -154,7 +164,7 @@ export class DevinAcp {
     // before the handshake. Either way the server must survive and start()
     // must reject instead of hanging.
     proc.on("error", (procErr) => {
-      finish(null, new Error(`failed to start devin acp: ${procErr.message}`));
+      finish(null, new Error(`failed to start ${agent.command}: ${procErr.message}`));
       // 'error' does not imply the child died (post-spawn stdio errors) —
       // we just declared it dead, so make that true rather than leak it.
       self.kill();

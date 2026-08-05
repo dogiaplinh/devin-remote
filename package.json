@@ -1,6 +1,6 @@
 {
   "name": "devin-remote",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "A Kimi-web-style browser console for the Devin CLI — chat, streaming, modes, models, usage, terminal and more, over the Agent Client Protocol (ACP).",
   "license": "MIT",
   "type": "module",

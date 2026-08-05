@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+Multi-agent: drive [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent) sessions alongside Devin.
+
+- Agent registry (`server/src/agents.ts`): Devin keeps its pooled process per workspace with multiplexed sessions; Prime — whose ACP mode is strictly one session per process, with no `session/list`/`session/load` — gets a dedicated process per session
+- Prime sessions persist in the local store (they outlive the process as read-only history served from the session log; replay/`open` is refused with 409 so live events are never mistaken for replay)
+- Agent picker in the sidebar (shown when more than one agent CLI is installed) + agent badge on non-Devin sessions
+- `/api/meta` gains `agents[]` install/auth checks; `POST /api/sessions` accepts `agent`; the session list merges Devin's own list with locally-tracked agent sessions and survives Devin being unavailable
+- `process_status` WS event now carries `agent` and `sessionId` so the UI can settle a session whose dedicated process exited
+- Rename stores the local alias even when the owning process is gone
+
 ## 0.3.1
 
 Hardening release — a full code review of the server and frontend, twice

@@ -16,6 +16,8 @@ export interface AppInfo {
   version: string;
 }
 
+export type AgentId = "devin" | "prime";
+
 export interface DevinInfo {
   installed: boolean;
   version: string | null;
@@ -23,8 +25,15 @@ export interface DevinInfo {
   detail: string;
 }
 
+export interface AgentInfo extends DevinInfo {
+  id: AgentId;
+  label: string;
+}
+
 export interface ProcessInfo {
   cwd: string;
+  agent?: AgentId;
+  sessionId?: string;
   startedAt: number;
   exited: boolean;
   capabilities: { loadSession?: boolean; image?: boolean };
@@ -33,6 +42,7 @@ export interface ProcessInfo {
 export interface MetaResponse {
   app: AppInfo;
   devin: DevinInfo;
+  agents?: AgentInfo[];
   workspaces: string[];
   processes: ProcessInfo[];
   settings: Settings;
@@ -42,9 +52,11 @@ export interface MetaResponse {
 export interface SessionSummary {
   sessionId: string;
   cwd: string;
+  agent?: AgentId;
   title: string | null;
   alias: string | null;
   updatedAt: string | null;
+  live?: boolean;
 }
 
 // ---- ACP session updates --------------------------------------------------
@@ -213,7 +225,7 @@ export type WsServerEvent =
   | { type: "terminal_output"; terminalId: string; sessionId: string; data: string }
   | { type: "terminal_exit"; terminalId: string; sessionId: string; exitCode: number | null; signal: string | null }
   | { type: "agent_log"; sessionId: string; channel: string; message: string; level: string }
-  | { type: "process_status"; cwd: string; status: "exited"; code: number | null }
+  | { type: "process_status"; cwd: string; status: "exited"; code: number | null; agent?: AgentId; sessionId?: string }
   | { type: "prompt_done"; sessionId: string; result: PromptDoneResult };
 
 // ---- REST payloads --------------------------------------------------------

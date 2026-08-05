@@ -13,6 +13,7 @@ import type {
 } from "./store-types";
 import { mentionToUri, extractMentions } from "./utils";
 import type {
+  AgentId,
   AvailableCommandsUpdate,
   ConfigOptionUpdate,
   CurrentModeUpdate,
@@ -126,6 +127,7 @@ function emptySession(summary: SessionSummary): SessionState {
   return {
     sessionId: summary.sessionId,
     cwd: summary.cwd,
+    agent: summary.agent ?? "devin",
     title: summary.title ?? null,
     alias: summary.alias ?? null,
     updatedAt: summary.updatedAt ?? null,
@@ -159,6 +161,7 @@ function ensureSession(summary: SessionSummary): void {
   if (existing) {
     updateSession(summary.sessionId, (d) => {
       d.cwd = summary.cwd || d.cwd;
+      d.agent = summary.agent ?? d.agent;
       d.title = summary.title ?? d.title;
       d.alias = summary.alias ?? d.alias;
       d.updatedAt = summary.updatedAt ?? d.updatedAt;
@@ -312,12 +315,16 @@ function startSessionSync(sessionId: string): void {
     //    events queue up in dispatchEvent. The loadSession response resolves
     //    only after the replay finished, so everything queued by then is
     //    replay and can be dropped. A short grace window catches stragglers.
+    //    Single-session agents (Prime) have no session/load: skip open so
+    //    queued events are treated as genuinely live.
     let openOk = false;
-    try {
-      await api.openSession(sessionId, state.sessions[sessionId]?.cwd);
-      openOk = true;
-    } catch {
-      /* loadSession unsupported/failed — queued events are genuinely live */
+    if (state.sessions[sessionId]?.agent === "devin") {
+      try {
+        await api.openSession(sessionId, state.sessions[sessionId]?.cwd);
+        openOk = true;
+      } catch {
+        /* loadSession unsupported/failed — queued events are genuinely live */
+      }
     }
     if (!current()) return;
     const queued = syncQueues.get(sessionId) ?? [];
@@ -349,23 +356,25 @@ export function resyncActiveSession(): void {
   startSessionSync(id);
 }
 
-export async function createSession(cwd: string): Promise<void> {
+export async function createSession(cwd: string, agent: AgentId = "devin"): Promise<void> {
   const dir = cwd.trim() || state.meta?.primaryCwd || "";
   if (!dir) {
     showNotice("no workspace directory — pass a cwd");
     return;
   }
   try {
-    const res = await api.createSession(dir);
-    ensureSession({ sessionId: res.sessionId, cwd: res.cwd, title: null, alias: null, updatedAt: null });
+    const res = await api.createSession(dir, agent);
+    ensureSession({ sessionId: res.sessionId, cwd: res.cwd, agent: res.agent, title: null, alias: null, updatedAt: null });
     updateSession(res.sessionId, (d) => {
       d.synced = true; // brand-new: nothing to replay
     });
     setState({ activeSessionId: res.sessionId, ui: { ...state.ui, sidebarOpen: false } });
-    // Apply configured defaults for fresh sessions.
-    const { defaultModel, defaultMode } = state.settings;
-    if (defaultMode) void api.setConfig(res.sessionId, "mode", defaultMode, res.cwd).catch(() => undefined);
-    if (defaultModel) void api.setConfig(res.sessionId, "model", defaultModel, res.cwd).catch(() => undefined);
+    // Apply configured defaults for fresh sessions (Devin model/mode ids only).
+    if (agent === "devin") {
+      const { defaultModel, defaultMode } = state.settings;
+      if (defaultMode) void api.setConfig(res.sessionId, "mode", defaultMode, res.cwd).catch(() => undefined);
+      if (defaultModel) void api.setConfig(res.sessionId, "model", defaultModel, res.cwd).catch(() => undefined);
+    }
   } catch (err) {
     showNotice(err instanceof Error ? err.message : "failed to create session");
   }
@@ -826,7 +835,8 @@ export function dispatchEvent(ev: WsServerEvent): void {
       });
       if (state.settings.soundNotify) soundNotify();
       if (document.hidden && state.settings.desktopNotify) {
-        notifyDesktop("Devin needs permission", String(ev.toolCall?.title ?? "a tool call"));
+        const who = state.sessions[ev.sessionId]?.agent === "prime" ? "Prime" : "Devin";
+        notifyDesktop(`${who} needs permission`, String(ev.toolCall?.title ?? "a tool call"));
       }
       break;
     }
@@ -852,7 +862,16 @@ export function dispatchEvent(ev: WsServerEvent): void {
       pushAgentLog({ ts: Date.now(), sessionId: ev.sessionId, channel: ev.channel, message: ev.message, level: ev.level });
       break;
     case "process_status":
-      if (ev.status === "exited") showNotice(`devin process exited (${ev.code ?? "?"}) — ${ev.cwd}`);
+      if (ev.status === "exited") {
+        if (ev.sessionId) {
+          // A single-session agent process died with its session.
+          updateSession(ev.sessionId, (d) => {
+            closeOpenMessages(d);
+            d.running = false;
+          });
+        }
+        showNotice(`${ev.agent ?? "devin"} process exited (${ev.code ?? "?"}) — ${ev.cwd}`);
+      }
       break;
     case "prompt_done": {
       updateSession(ev.sessionId, (d) => {
@@ -861,7 +880,8 @@ export function dispatchEvent(ev: WsServerEvent): void {
       });
       if (state.settings.soundComplete) soundComplete();
       if (document.hidden && state.settings.desktopNotify) {
-        notifyDesktop("Devin finished a turn", `stop reason: ${ev.result?.stopReason ?? "end_turn"}`);
+        const who = state.sessions[ev.sessionId]?.agent === "prime" ? "Prime" : "Devin";
+        notifyDesktop(`${who} finished a turn`, `stop reason: ${ev.result?.stopReason ?? "end_turn"}`);
       }
       // The session title may have been generated — refresh the list lazily.
       setTimeout(() => void refreshSessions(), 1500);
