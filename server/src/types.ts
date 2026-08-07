@@ -41,10 +41,19 @@ export interface UsageRecord {
   model?: string;
 }
 
+export interface AgentSessionRecord {
+  agent: string;
+  cwd: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface StoreShape {
   aliases: Record<string, string>;
   workspaces: string[];
   usage: UsageRecord[];
+  /** Sessions of single-session agents (Prime) — the agent CLI cannot list them. */
+  agentSessions: Record<string, AgentSessionRecord>;
   settings: {
     theme: "dark" | "light" | "system";
     soundComplete: boolean;

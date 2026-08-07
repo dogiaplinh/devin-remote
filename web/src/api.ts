@@ -1,4 +1,5 @@
 import type {
+  AgentId,
   MetaResponse,
   PromptBlock,
   PromptDoneResult,
@@ -67,8 +68,8 @@ export const api = {
 
   listSessions: () => req<{ sessions: SessionSummary[] }>("GET", "/api/sessions"),
 
-  createSession: (cwd: string) =>
-    req<{ sessionId: string; cwd: string; modes: unknown }>("POST", "/api/sessions", { cwd }),
+  createSession: (cwd: string, agent: AgentId = "devin") =>
+    req<{ sessionId: string; cwd: string; agent: AgentId; modes: unknown }>("POST", "/api/sessions", { cwd, agent }),
 
   openSession: (sessionId: string, cwd?: string) =>
     req<{ ok: boolean }>("POST", `/api/sessions/${encodeURIComponent(sessionId)}/open`, { cwd }),

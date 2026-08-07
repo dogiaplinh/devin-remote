@@ -2,12 +2,13 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
-import type { StoreShape, UsageRecord } from "./types.js";
+import type { AgentSessionRecord, StoreShape, UsageRecord } from "./types.js";
 
 const DEFAULTS: StoreShape = {
   aliases: {},
   workspaces: [],
   usage: [],
+  agentSessions: {},
   settings: {
     theme: "dark",
     soundComplete: true,
@@ -143,6 +144,28 @@ export class Store {
   addWorkspace(cwd: string) {
     if (!this.data.workspaces.includes(cwd)) {
       this.data.workspaces.push(cwd);
+      this.save();
+    }
+  }
+
+  agentSession(sessionId: string): AgentSessionRecord | undefined {
+    return this.data.agentSessions[sessionId];
+  }
+
+  agentSessions(): Record<string, AgentSessionRecord> {
+    return this.data.agentSessions;
+  }
+
+  addAgentSession(sessionId: string, agent: string, cwd: string) {
+    const now = Date.now();
+    this.data.agentSessions[sessionId] = { agent, cwd, createdAt: now, updatedAt: now };
+    this.save();
+  }
+
+  touchAgentSession(sessionId: string) {
+    const rec = this.data.agentSessions[sessionId];
+    if (rec) {
+      rec.updatedAt = Date.now();
       this.save();
     }
   }

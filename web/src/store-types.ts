@@ -1,6 +1,7 @@
 // View-state shapes for the client store (kept apart from protocol types).
 
 import type {
+  AgentId,
   ConfigOption,
   MetaResponse,
   PlanEntry,
@@ -54,6 +55,7 @@ export interface PendingPermission {
 export interface SessionState {
   sessionId: string;
   cwd: string;
+  agent: AgentId;
   title: string | null;
   alias: string | null;
   updatedAt: string | null;

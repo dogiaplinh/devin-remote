@@ -8,6 +8,7 @@ import type { SessionLog } from "./sessionlog.js";
 import type { DevinAcp } from "./acp.js";
 import { saveUpload, serveUpload, uploadPath } from "./uploads.js";
 import { buildSessionZip } from "./export.js";
+import { agentById } from "./agents.js";
 import type { UsageRecord } from "./types.js";
 import type { Auth } from "./auth.js";
 
@@ -19,6 +20,8 @@ export interface ApiContext {
   appVersion: string;
   primaryCwd: string;
   devinCheck: () => Promise<unknown>;
+  /** Install/auth status for every registered agent CLI. */
+  agentsCheck: () => Promise<unknown[]>;
   /** sessionId → workspace cwd (learned from list/new/load). */
   sessionCwd: Map<string, string>;
   /** permission requestId → owning acp process. */
@@ -68,6 +71,17 @@ async function normalizeBlocks(store: Store, blocks: unknown[]): Promise<Content
 }
 
 async function acpForSession(ctx: ApiContext, sessionId: string, cwd?: string) {
+  // Sessions of single-session agents live on their own dedicated process.
+  const dedicated = ctx.manager.forSession(sessionId);
+  if (dedicated) return dedicated;
+  const rec = ctx.store.agentSession(sessionId);
+  if (rec) {
+    const agent = agentById(rec.agent);
+    throw Object.assign(
+      new Error(`this ${agent.label} session has ended — its history stays readable, but start a new session to continue`),
+      { status: 409 },
+    );
+  }
   const dir = cwd ?? ctx.sessionCwd.get(sessionId);
   if (!dir) throw Object.assign(new Error("unknown session — pass cwd"), { status: 400 });
   const acp = await ctx.manager.get(dir);
@@ -111,6 +125,7 @@ export async function handleApi(
       return json(res, 200, {
         app: { name: "devin-remote", version: ctx.appVersion },
         devin: await ctx.devinCheck(),
+        agents: await ctx.agentsCheck(),
         workspaces: ctx.store.workspaces(),
         processes: ctx.manager.status(),
         settings: ctx.store.settings,
@@ -118,40 +133,69 @@ export async function handleApi(
       });
     }
 
-    // GET /api/sessions — global session list via the primary workspace process.
+    // GET /api/sessions — Devin's own list plus locally-tracked agent sessions.
     if (m === "GET" && url.pathname === "/api/sessions") {
-      const acp = await ctx.manager.get(ctx.primaryCwd);
       const aliases = ctx.store.aliases();
-      const sessions: unknown[] = [];
-      let cursor: string | undefined;
-      do {
-        const page = await acp.listSessions(cursor);
-        for (const s of page.sessions) {
-          ctx.sessionCwd.set(s.sessionId, s.cwd);
-          sessions.push({
-            sessionId: s.sessionId,
-            cwd: s.cwd,
-            title: s.title ?? null,
-            alias: aliases[s.sessionId] ?? null,
-            updatedAt: (s as { updatedAt?: string }).updatedAt ?? null,
-          });
-        }
-        cursor = page.nextCursor ?? undefined;
-      } while (cursor && sessions.length < 2000);
-      return json(res, 200, { sessions });
+      const sessions: Array<Record<string, unknown>> = [];
+      let devinError: string | null = null;
+      try {
+        const acp = await ctx.manager.get(ctx.primaryCwd);
+        let cursor: string | undefined;
+        do {
+          const page = await acp.listSessions(cursor);
+          for (const s of page.sessions) {
+            ctx.sessionCwd.set(s.sessionId, s.cwd);
+            sessions.push({
+              sessionId: s.sessionId,
+              cwd: s.cwd,
+              agent: "devin",
+              title: s.title ?? null,
+              alias: aliases[s.sessionId] ?? null,
+              updatedAt: (s as { updatedAt?: string }).updatedAt ?? null,
+            });
+          }
+          cursor = page.nextCursor ?? undefined;
+        } while (cursor && sessions.length < 2000);
+      } catch (err) {
+        // Devin being missing/broken must not hide other agents' sessions.
+        devinError = err instanceof Error ? err.message : String(err);
+      }
+      const known = new Set(sessions.map((s) => s.sessionId));
+      for (const [sid, rec] of Object.entries(ctx.store.agentSessions())) {
+        if (known.has(sid)) continue;
+        ctx.sessionCwd.set(sid, rec.cwd);
+        sessions.push({
+          sessionId: sid,
+          cwd: rec.cwd,
+          agent: rec.agent,
+          title: null,
+          alias: aliases[sid] ?? null,
+          updatedAt: new Date(rec.updatedAt).toISOString(),
+          live: !!ctx.manager.forSession(sid),
+        });
+      }
+      return json(res, 200, { sessions, devinError });
     }
 
-    // POST /api/sessions {cwd}
+    // POST /api/sessions {cwd, agent?}
     if (m === "POST" && url.pathname === "/api/sessions") {
       const body = await readJson(req);
       const cwd = String(body.cwd ?? ctx.primaryCwd);
-      const acp = await ctx.manager.get(cwd);
+      const agent = agentById(body.agent);
       ctx.store.addWorkspace(cwd);
+      const acp = agent.multiSession
+        ? await ctx.manager.get(cwd, agent)
+        : await ctx.manager.startForSession(cwd, agent);
       const s = await acp.newSession(cwd);
+      if (!agent.multiSession) {
+        ctx.manager.bindSession(s.sessionId, acp);
+        ctx.store.addAgentSession(s.sessionId, agent.id, cwd);
+      }
       ctx.sessionCwd.set(s.sessionId, cwd);
       return json(res, 200, {
         sessionId: s.sessionId,
         cwd,
+        agent: agent.id,
         modes: (s as { modes?: unknown }).modes ?? null,
       });
     }
@@ -162,6 +206,11 @@ export async function handleApi(
       const action = parts[3];
 
       if (m === "POST" && action === "open") {
+        // Single-session agents can't replay (no session/load) — the client
+        // must treat WS events as live and read history from the local log.
+        if (ctx.store.agentSession(id)) {
+          return json(res, 409, { error: "session replay is not supported for this agent" });
+        }
         const body = await readJson(req);
         const acp = await acpForSession(ctx, id, body.cwd as string | undefined);
         await acp.loadSession(id, acp.cwd);
@@ -195,6 +244,7 @@ export async function handleApi(
           };
           ctx.store.recordUsage(rec);
         }
+        ctx.store.touchAgentSession(id);
         ctx.hub.broadcast({ type: "prompt_done", sessionId: id, result: done });
         return json(res, 200, done);
       }
@@ -209,9 +259,16 @@ export async function handleApi(
       if (m === "POST" && action === "rename") {
         const body = await readJson(req);
         const title = String(body.title ?? "").trim();
-        const acp = await acpForSession(ctx, id, body.cwd as string | undefined);
+        // The local alias is authoritative; the remote rename is best-effort
+        // (dead single-session agents can still be renamed locally).
         ctx.store.setAlias(id, title);
-        const remote = title ? await acp.renameSession(id, title) : false;
+        let remote = false;
+        try {
+          const acp = await acpForSession(ctx, id, body.cwd as string | undefined);
+          remote = title ? await acp.renameSession(id, title) : false;
+        } catch {
+          /* alias saved — that's enough */
+        }
         return json(res, 200, { ok: true, remote });
       }
 

@@ -10,6 +10,7 @@ import {
   useStore,
 } from "../state";
 import type { SessionState } from "../state";
+import type { AgentId } from "../types";
 import { fuzzyScore, relTime, truncate } from "../utils";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,7 @@ export function sessionLabel(s: SessionState): string {
 export default function Sidebar({ onLogout }: { onLogout: () => void }) {
   const state = useStore();
   const [cwdInput, setCwdInput] = useState("");
+  const [agent, setAgent] = useState<AgentId>("devin");
   const [filter, setFilter] = useState("");
   const [creating, setCreating] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -67,11 +69,13 @@ export default function Sidebar({ onLogout }: { onLogout: () => void }) {
     return filtered.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
   }, [state.sessions, filter]);
 
+  const agents = state.meta?.agents;
+
   const submitNew = async () => {
     const dir = cwdInput.trim() || state.meta?.primaryCwd || "";
     if (!dir || creating) return;
     setCreating(true);
-    await createSession(dir);
+    await createSession(dir, agent);
     setCreating(false);
     setCwdInput("");
   };
@@ -133,6 +137,28 @@ export default function Sidebar({ onLogout }: { onLogout: () => void }) {
             New session
           </button>
         </div>
+        {/* agent picker — shown once the server advertises more than one agent */}
+        {agents && agents.length > 1 && (
+          <div className="flex gap-1 rounded-lg bg-secondary p-0.5">
+            {agents.map((a) => (
+              <button
+                key={a.id}
+                disabled={!a.installed}
+                title={a.installed ? `${a.label}${a.version ? ` · ${a.version}` : ""}` : `${a.label} CLI not found on PATH`}
+                className={cn(
+                  "h-7 flex-1 rounded-md text-xs font-medium transition-all duration-150",
+                  agent === a.id
+                    ? "bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+                    : "text-muted-foreground hover:text-foreground",
+                  !a.installed && "cursor-not-allowed opacity-40",
+                )}
+                onClick={() => setAgent(a.id)}
+              >
+                {a.label}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="relative">
           <SearchIcon className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -234,6 +260,11 @@ export default function Sidebar({ onLogout }: { onLogout: () => void }) {
                     {truncate(sessionLabel(s), 90)}
                   </div>
                   <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+                    {s.agent !== "devin" && (
+                      <span className="rounded bg-secondary px-1 py-px text-[10px] font-medium uppercase tracking-wide">
+                        {s.agent}
+                      </span>
+                    )}
                     {s.updatedAt && <span>{relTime(s.updatedAt)}</span>}
                     <span className="tnum font-mono opacity-60">· {s.sessionId.slice(0, 8)}</span>
                   </div>

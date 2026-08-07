@@ -7,6 +7,7 @@ import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { AcpManager } from "./manager.js";
+import { AGENTS, type AgentDef } from "./agents.js";
 import { Store } from "./store.js";
 import { WsHub } from "./ws.js";
 import { SessionLog } from "./sessionlog.js";
@@ -117,30 +118,50 @@ function isAllowedRequest(req: http.IncomingMessage): boolean {
   return o.port === host.port;
 }
 
-// ---- devin CLI checks ------------------------------------------------------
-interface DevinCheck {
+// ---- agent CLI checks ------------------------------------------------------
+interface AgentCheck {
+  id: string;
+  label: string;
   installed: boolean;
   version: string | null;
   authed: boolean;
   detail: string;
 }
-let cachedCheck: { at: number; result: DevinCheck } | null = null;
-async function devinCheck(): Promise<DevinCheck> {
-  if (cachedCheck && Date.now() - cachedCheck.at < 30_000) return cachedCheck.result;
-  const result: DevinCheck = { installed: false, version: null, authed: false, detail: "" };
+const checkCache = new Map<string, { at: number; result: AgentCheck }>();
+async function agentCheck(agent: AgentDef): Promise<AgentCheck> {
+  const cached = checkCache.get(agent.id);
+  if (cached && Date.now() - cached.at < 30_000) return cached.result;
+  const result: AgentCheck = {
+    id: agent.id,
+    label: agent.label,
+    installed: false,
+    version: null,
+    authed: false,
+    detail: "",
+  };
   try {
-    const v = await execFileP("devin", ["version"], { timeout: 10_000 });
+    const v = await execFileP(agent.command, agent.versionArgs, { timeout: 10_000 });
     result.installed = true;
-    result.version = v.stdout.trim().split("\n")[0] ?? null;
-    const s = await execFileP("devin", ["auth", "status"], { timeout: 10_000 });
-    result.authed = /logged in/i.test(s.stdout);
-    result.detail = s.stdout.trim();
+    // prime-agent prints its version to stderr; devin to stdout.
+    result.version = (v.stdout.trim() || v.stderr.trim()).split("\n")[0] || null;
+    if (agent.id === "devin") {
+      const s = await execFileP("devin", ["auth", "status"], { timeout: 10_000 });
+      result.authed = /logged in/i.test(s.stdout);
+      result.detail = s.stdout.trim();
+    } else {
+      // Prime manages provider auth itself (`prime-agent` → /login); there is
+      // no headless status probe, so installed is the best signal we have.
+      result.authed = true;
+      result.detail = "provider auth managed by the agent (run its /login once in a terminal)";
+    }
   } catch (err) {
     result.detail = err instanceof Error ? err.message : String(err);
   }
-  cachedCheck = { at: Date.now(), result };
+  checkCache.set(agent.id, { at: Date.now(), result });
   return result;
 }
+const devinCheck = () => agentCheck(AGENTS.devin);
+const agentsCheck = () => Promise.all(Object.values(AGENTS).map(agentCheck));
 
 // ---- wiring ----------------------------------------------------------------
 const store = new Store();
@@ -187,8 +208,8 @@ const manager = new AcpManager({
   onTerminalExit: (terminalId, sessionId, exitCode, signal) => {
     hub.broadcast({ type: "terminal_exit", terminalId, sessionId, exitCode, signal });
   },
-  onExit: (cwd, code) => {
-    hub.broadcast({ type: "process_status", cwd, status: "exited", code });
+  onExit: (cwd, code, agent, sessionId) => {
+    hub.broadcast({ type: "process_status", cwd, status: "exited", code, agent, sessionId });
   },
 });
 
@@ -200,6 +221,7 @@ const ctx: ApiContext = {
   appVersion: pkg.version,
   primaryCwd,
   devinCheck,
+  agentsCheck,
   sessionCwd,
   permissionOwner,
   auth,
