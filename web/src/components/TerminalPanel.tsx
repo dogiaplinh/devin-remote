@@ -46,7 +46,7 @@ function XTermView({ id, version, resetSeq }: { id: string; version: number; res
       theme: XTERM_THEME,
       scrollback: 10000,
       disableStdin: true,
-      convertEol: false, // output already contains \r\n / ANSI — pass through
+      convertEol: true, // child_process output is usually LF-only; xterm needs CR+LF to start lines at col 0
     });
     const fit = new FitAddon();
     term.loadAddon(fit);

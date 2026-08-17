@@ -6,6 +6,8 @@ import "katex/dist/katex.min.css";
 import {
   type CodeHeaderProps,
   MarkdownTextPrimitive,
+  escapeCurrencyDollars,
+  normalizeMathDelimiters,
   unstable_memoizeMarkdownComponents as memoizeMarkdownComponents,
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
@@ -14,6 +16,9 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { type FC, memo, useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
+
+const preprocessMarkdown = (text: string) =>
+  escapeCurrencyDollars(normalizeMathDelimiters(text));
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { MermaidBlock } from "@/components/MermaidBlock";
@@ -24,6 +29,7 @@ const MarkdownTextImpl = () => {
     <MarkdownTextPrimitive
       remarkPlugins={[remarkGfm, remarkMath]}
       rehypePlugins={[rehypeKatex]}
+      preprocess={preprocessMarkdown}
       className="aui-md"
       components={defaultComponents}
       componentsByLanguage={{ mermaid: { SyntaxHighlighter: MermaidBlock } }}
