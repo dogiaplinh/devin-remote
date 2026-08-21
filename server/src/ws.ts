@@ -49,7 +49,14 @@ export class WsHub {
   broadcast(event: WsServerEvent) {
     const msg = JSON.stringify(event);
     for (const client of this.wss.clients) {
-      if (client.readyState === WebSocket.OPEN) client.send(msg);
+      if (client.readyState === WebSocket.OPEN) {
+        try {
+          client.send(msg);
+        } catch {
+          // Socket may have moved to CLOSING between the check and send.
+          // Ignore; keepalive will reap it.
+        }
+      }
     }
   }
 

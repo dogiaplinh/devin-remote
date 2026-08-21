@@ -128,37 +128,50 @@ interface AgentCheck {
   detail: string;
 }
 const checkCache = new Map<string, { at: number; result: AgentCheck }>();
+const inFlight = new Map<string, Promise<AgentCheck>>();
 async function agentCheck(agent: AgentDef): Promise<AgentCheck> {
   const cached = checkCache.get(agent.id);
   if (cached && Date.now() - cached.at < 30_000) return cached.result;
-  const result: AgentCheck = {
-    id: agent.id,
-    label: agent.label,
-    installed: false,
-    version: null,
-    authed: false,
-    detail: "",
-  };
-  try {
-    const v = await execFileP(agent.command, agent.versionArgs, { timeout: 10_000 });
-    result.installed = true;
-    // prime-agent prints its version to stderr; devin to stdout.
-    result.version = (v.stdout.trim() || v.stderr.trim()).split("\n")[0] || null;
-    if (agent.id === "devin") {
-      const s = await execFileP("devin", ["auth", "status"], { timeout: 10_000 });
-      result.authed = /logged in/i.test(s.stdout);
-      result.detail = s.stdout.trim();
-    } else {
-      // Prime manages provider auth itself (`prime-agent` → /login); there is
-      // no headless status probe, so installed is the best signal we have.
-      result.authed = true;
-      result.detail = "provider auth managed by the agent (run its /login once in a terminal)";
+  const pending = inFlight.get(agent.id);
+  if (pending) return pending;
+
+  const p = (async (): Promise<AgentCheck> => {
+    const result: AgentCheck = {
+      id: agent.id,
+      label: agent.label,
+      installed: false,
+      version: null,
+      authed: false,
+      detail: "",
+    };
+    try {
+      const v = await execFileP(agent.command, agent.versionArgs, { timeout: 10_000 });
+      result.installed = true;
+      // prime-agent prints its version to stderr; devin to stdout.
+      result.version = (v.stdout.trim() || v.stderr.trim()).split("\n")[0] || null;
+      if (agent.id === "devin") {
+        const s = await execFileP("devin", ["auth", "status"], { timeout: 10_000 });
+        result.authed = /logged in/i.test(s.stdout);
+        result.detail = s.stdout.trim();
+      } else {
+        // Prime manages provider auth itself (`prime-agent` → /login); there is
+        // no headless status probe, so installed is the best signal we have.
+        result.authed = true;
+        result.detail = "provider auth managed by the agent (run its /login once in a terminal)";
+      }
+    } catch (err) {
+      result.detail = err instanceof Error ? err.message : String(err);
     }
-  } catch (err) {
-    result.detail = err instanceof Error ? err.message : String(err);
+    checkCache.set(agent.id, { at: Date.now(), result });
+    return result;
+  })();
+
+  inFlight.set(agent.id, p);
+  try {
+    return await p;
+  } finally {
+    inFlight.delete(agent.id);
   }
-  checkCache.set(agent.id, { at: Date.now(), result });
-  return result;
 }
 const devinCheck = () => agentCheck(AGENTS.devin);
 const agentsCheck = () => Promise.all(Object.values(AGENTS).map(agentCheck));
@@ -331,9 +344,9 @@ httpServer.listen(PORT, HOST, async () => {
 });
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
-  process.on(sig, () => {
+  process.on(sig, async () => {
     manager.killAll();
-    store.flush();
+    await store.flush();
     process.exit(0);
   });
 }

@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import fs from "node:fs/promises";
+import path from "node:path";
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 import type { AcpManager } from "./manager.js";
 import type { Store } from "./store.js";
@@ -51,6 +52,39 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
   return JSON.parse(buf.toString("utf8"));
 }
 
+/** Resolve and validate a user-supplied cwd. Existing dirs must live under primaryCwd or a known workspace; new dirs must be under primaryCwd. */
+async function resolveCwd(raw: unknown, ctx: ApiContext, fallback = ctx.primaryCwd): Promise<string> {
+  const rawStr = typeof raw === "string" && raw.trim() ? raw : fallback;
+  if (rawStr.includes("\0")) {
+    throw Object.assign(new Error("invalid cwd"), { status: 400 });
+  }
+  const resolved = path.resolve(rawStr);
+  const primary = path.resolve(ctx.primaryCwd);
+  const workspaces = new Set(ctx.store.workspaces().map((w) => path.resolve(w)));
+
+  const stat = await fs.stat(resolved).catch(() => null);
+  if (stat) {
+    if (!stat.isDirectory()) {
+      throw Object.assign(new Error("cwd is not a directory"), { status: 400 });
+    }
+    const real = await fs.realpath(resolved).catch(() => resolved);
+    const rel = path.relative(primary, real);
+    if (!rel.startsWith("..") && !path.isAbsolute(rel)) return real;
+    for (const w of workspaces) {
+      const relW = path.relative(w, real);
+      if (!relW.startsWith("..") && !path.isAbsolute(relW)) return real;
+    }
+    throw Object.assign(new Error("cwd outside allowed workspace"), { status: 403 });
+  }
+
+  // New directory: only allowed under the primary workspace so spawn cannot create arbitrary system dirs.
+  const rel = path.relative(primary, resolved);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw Object.assign(new Error("cwd outside primary workspace"), { status: 403 });
+  }
+  return resolved;
+}
+
 /** Replace uploadId references with real base64 data for ACP image blocks. */
 async function normalizeBlocks(store: Store, blocks: unknown[]): Promise<ContentBlock[]> {
   const out: ContentBlock[] = [];
@@ -70,7 +104,7 @@ async function normalizeBlocks(store: Store, blocks: unknown[]): Promise<Content
   return out;
 }
 
-async function acpForSession(ctx: ApiContext, sessionId: string, cwd?: string) {
+async function acpForSession(ctx: ApiContext, sessionId: string, rawCwd?: unknown) {
   // Sessions of single-session agents live on their own dedicated process.
   const dedicated = ctx.manager.forSession(sessionId);
   if (dedicated) return dedicated;
@@ -82,7 +116,7 @@ async function acpForSession(ctx: ApiContext, sessionId: string, cwd?: string) {
       { status: 409 },
     );
   }
-  const dir = cwd ?? ctx.sessionCwd.get(sessionId);
+  const dir = (typeof rawCwd === "string" && rawCwd.trim() ? await resolveCwd(rawCwd, ctx) : undefined) ?? ctx.sessionCwd.get(sessionId);
   if (!dir) throw Object.assign(new Error("unknown session — pass cwd"), { status: 400 });
   const acp = await ctx.manager.get(dir);
   ctx.sessionCwd.set(sessionId, dir);
@@ -180,7 +214,7 @@ export async function handleApi(
     // POST /api/sessions {cwd, agent?}
     if (m === "POST" && url.pathname === "/api/sessions") {
       const body = await readJson(req);
-      const cwd = String(body.cwd ?? ctx.primaryCwd);
+      const cwd = await resolveCwd(body.cwd, ctx);
       const agent = agentById(body.agent);
       ctx.store.addWorkspace(cwd);
       const acp = agent.multiSession
@@ -212,7 +246,7 @@ export async function handleApi(
           return json(res, 409, { error: "session replay is not supported for this agent" });
         }
         const body = await readJson(req);
-        const acp = await acpForSession(ctx, id, body.cwd as string | undefined);
+        const acp = await acpForSession(ctx, id, body.cwd);
         await acp.loadSession(id, acp.cwd);
         return json(res, 200, { ok: true });
       }
@@ -221,7 +255,7 @@ export async function handleApi(
         const body = await readJson(req);
         const blocks = await normalizeBlocks(ctx.store, (body.blocks as unknown[]) ?? []);
         if (blocks.length === 0) return json(res, 400, { error: "empty prompt" });
-        const acp = await acpForSession(ctx, id, body.cwd as string | undefined);
+        const acp = await acpForSession(ctx, id, body.cwd);
         // Mirror the user message into the session log for export/replay.
         for (const b of blocks) {
           if (b.type === "text") {
@@ -251,7 +285,7 @@ export async function handleApi(
 
       if (m === "POST" && action === "cancel") {
         const body = await readJson(req);
-        const acp = await acpForSession(ctx, id, body.cwd as string | undefined);
+        const acp = await acpForSession(ctx, id, body.cwd);
         await acp.cancel(id);
         return json(res, 200, { ok: true });
       }
@@ -264,7 +298,7 @@ export async function handleApi(
         ctx.store.setAlias(id, title);
         let remote = false;
         try {
-          const acp = await acpForSession(ctx, id, body.cwd as string | undefined);
+          const acp = await acpForSession(ctx, id, body.cwd);
           remote = title ? await acp.renameSession(id, title) : false;
         } catch {
           /* alias saved — that's enough */
@@ -274,7 +308,7 @@ export async function handleApi(
 
       if (m === "POST" && action === "config") {
         const body = await readJson(req);
-        const acp = await acpForSession(ctx, id, body.cwd as string | undefined);
+        const acp = await acpForSession(ctx, id, body.cwd);
         const result = await acp.setConfigOption(id, String(body.configId), String(body.value));
         return json(res, 200, result ?? { ok: true });
       }

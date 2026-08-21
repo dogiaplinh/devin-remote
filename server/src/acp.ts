@@ -21,10 +21,11 @@ export interface DevinAcpEvents {
   onPermissionResolved: (requestId: string) => void;
   onTerminalOutput: (terminalId: string, sessionId: string, data: string) => void;
   onTerminalExit: (terminalId: string, sessionId: string, exitCode: number | null, signal: string | null) => void;
-  onExit: (code: number | null) => void;
+  onExit: (code: number | null, acp: DevinAcp) => void;
 }
 
 let permissionSeq = 0;
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MiB cap on read/write text files
 
 /**
  * One ACP agent child process (`devin acp`, `prime-agent --mode acp`, ...)
@@ -101,13 +102,24 @@ export class DevinAcp {
       },
 
       readTextFile: async (params) => {
-        const p = confine(cwd, params.path);
+        const p = await confine(cwd, params.path);
+        const stat = await fs.stat(p);
+        if (stat.size > MAX_FILE_SIZE) {
+          throw acp.RequestError.invalidParams(`file exceeds ${MAX_FILE_SIZE} bytes: ${params.path}`);
+        }
         const content = await fs.readFile(p, "utf8");
         return { content };
       },
 
       writeTextFile: async (params) => {
-        const p = confine(cwd, params.path);
+        const p = await confine(cwd, params.path);
+        const contentSize =
+          typeof params.content === "string"
+            ? Buffer.byteLength(params.content, "utf8")
+            : (params.content as ArrayBufferView).byteLength;
+        if (contentSize > MAX_FILE_SIZE) {
+          throw acp.RequestError.invalidParams(`content exceeds ${MAX_FILE_SIZE} bytes: ${params.path}`);
+        }
         await fs.mkdir(path.dirname(p), { recursive: true });
         await fs.writeFile(p, params.content, "utf8");
       },
@@ -140,8 +152,8 @@ export class DevinAcp {
       }
     };
 
-    const input = Writable.toWeb(proc.stdin!) as WritableStream<Uint8Array>;
-    const output = Readable.toWeb(proc.stdout!) as ReadableStream<Uint8Array>;
+    const input = Writable.toWeb(proc.stdin!) as unknown as Parameters<typeof acp.ndJsonStream>[0];
+    const output = Readable.toWeb(proc.stdout!) as unknown as Parameters<typeof acp.ndJsonStream>[1];
     const stream = acp.ndJsonStream(input, output);
     const conn = new acp.ClientSideConnection(() => clientWithExt, stream);
 
@@ -163,7 +175,7 @@ export class DevinAcp {
       if (!handshaken) {
         failStart(err ?? new Error(`${agent.command} exited (code ${code}) before the ACP handshake completed`));
       }
-      ev.onExit(code);
+      ev.onExit(code, self);
     };
     // A missing binary emits 'error' (no 'exit'); a broken install exits
     // before the handshake. Either way the server must survive and start()
@@ -178,6 +190,14 @@ export class DevinAcp {
     proc.stdin!.on("error", () => {});
     proc.stdout!.on("error", () => {});
 
+    const HANDSHAKE_TIMEOUT_MS = 30_000;
+    let handshakeTimer: NodeJS.Timeout | undefined;
+    const handshakeTimeout = new Promise<never>((_, reject) => {
+      handshakeTimer = setTimeout(() => {
+        reject(new Error(`${agent.command} ACP handshake timed out after ${HANDSHAKE_TIMEOUT_MS}ms`));
+      }, HANDSHAKE_TIMEOUT_MS);
+    });
+
     try {
       self.capabilities = await Promise.race([
         conn.initialize({
@@ -189,11 +209,14 @@ export class DevinAcp {
           clientInfo: { name: "devin-remote", version: "0.1.0" },
         }),
         startFailed,
+        handshakeTimeout,
       ]);
     } catch (err) {
       // Never leave an orphaned child when the handshake fails.
       self.kill();
       throw err;
+    } finally {
+      if (handshakeTimer) clearTimeout(handshakeTimer);
     }
     handshaken = true;
     return self;
@@ -257,20 +280,34 @@ export class DevinAcp {
   }
 
   kill() {
+    if (this.exited) return;
     try {
       this.proc.kill("SIGTERM");
     } catch {
       /* already dead */
+      return;
     }
+    // Some agents may ignore SIGTERM; escalate to SIGKILL.
+    const t = setTimeout(() => {
+      if (this.exited) return;
+      try {
+        this.proc.kill("SIGKILL");
+      } catch {
+        /* already dead */
+      }
+    }, 5_000);
+    t.unref();
   }
 }
 
-/** Resolve `p` against `root` and refuse escapes outside the workspace. */
-function confine(root: string, p: string): string {
+/** Resolve `p` against `root` and refuse escapes outside the workspace. Also resolves symlinks so a path inside the workspace pointing outside is blocked. */
+async function confine(root: string, p: string): Promise<string> {
   const abs = path.resolve(root, p);
-  const rel = path.relative(root, abs);
+  const real = await fs.realpath(abs).catch(() => null);
+  const target = real ?? abs;
+  const rel = path.relative(root, target);
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
     throw acp.RequestError.invalidParams(`path escapes workspace: ${p}`);
   }
-  return abs;
+  return target;
 }

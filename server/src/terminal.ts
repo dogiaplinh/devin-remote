@@ -4,6 +4,7 @@ import type { CreateTerminalRequest, CreateTerminalResponse, TerminalOutputRespo
 import type { DevinAcpEvents } from "./acp.js";
 
 const FALLBACK_PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin";
+const whichCache = new Map<string, string | undefined>();
 
 /** macOS GUI/launchd processes often have a stripped PATH; keep common prefixes. */
 function ensurePath(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -15,9 +16,15 @@ function ensurePath(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 function resolveCommand(command: string, env: NodeJS.ProcessEnv): string {
   if (command.includes("/")) return command;
   const which = (name: string): string | undefined => {
+    const key = `${name}\0${env.PATH}`;
+    const hit = whichCache.get(key);
+    if (hit !== undefined || whichCache.has(key)) return hit;
     try {
-      return execFileSync("which", [name], { env, encoding: "utf8", timeout: 5000 }).trim();
+      const found = execFileSync("which", [name], { env, encoding: "utf8", timeout: 5000 }).trim();
+      whichCache.set(key, found);
+      return found;
     } catch {
+      whichCache.set(key, undefined);
       return undefined;
     }
   };

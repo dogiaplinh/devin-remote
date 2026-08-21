@@ -30,7 +30,11 @@ export class AcpManager {
 
   constructor(private ev: ManagerEvents) {}
 
-  private async spawn(cwd: string, agent: AgentDef, onExit: (code: number | null) => void): Promise<DevinAcp> {
+  private async spawn(
+    cwd: string,
+    agent: AgentDef,
+    onExit: (code: number | null, acp: DevinAcp) => void,
+  ): Promise<DevinAcp> {
     await fs.mkdir(cwd, { recursive: true });
     let instance: DevinAcp | null = null;
     const acp = await DevinAcp.start(
@@ -42,7 +46,7 @@ export class AcpManager {
           if (instance) this.ev.onPermissionOwner(requestId, instance);
           this.ev.onPermissionRequest(requestId, sessionId, toolCall, options);
         },
-        onExit,
+        onExit: (code, acp) => onExit(code, acp),
       },
       agent,
     );
@@ -63,7 +67,7 @@ export class AcpManager {
     if (pending) return pending;
 
     const p = (async () => {
-      const acp = await this.spawn(cwd, agent, (code) => {
+      const acp = await this.spawn(cwd, agent, (code, _acp) => {
         this.pooled.delete(key);
         this.ev.onExit(cwd, code, agent.id);
       });
@@ -81,12 +85,13 @@ export class AcpManager {
 
   /** Spawn a dedicated process for one session of a single-session agent. */
   async startForSession(cwd: string, agent: AgentDef): Promise<DevinAcp> {
-    const acp = await this.spawn(cwd, agent, (code) => {
+    const acp = await this.spawn(cwd, agent, (code, exitedAcp) => {
       let sessionId: string | undefined;
       for (const [sid, m] of this.bySession) {
-        if (m.acp === acp) {
+        if (m.acp === exitedAcp) {
           sessionId = sid;
           this.bySession.delete(sid);
+          break;
         }
       }
       this.ev.onExit(cwd, code, agent.id, sessionId);

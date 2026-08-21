@@ -18,6 +18,7 @@ const DEFAULTS: StoreShape = {
 };
 
 const MAX_USAGE_RECORDS = 50_000;
+const MAX_WORKSPACES = 1_000;
 
 export class Store {
   readonly dataDir: string;
@@ -61,6 +62,8 @@ export class Store {
         ...DEFAULTS,
         ...raw,
         settings: { ...DEFAULTS.settings, ...(raw.settings ?? {}) },
+        workspaces: Array.isArray(raw.workspaces) ? raw.workspaces.slice(-MAX_WORKSPACES) : DEFAULTS.workspaces,
+        usage: Array.isArray(raw.usage) ? raw.usage.slice(-MAX_USAGE_RECORDS) : DEFAULTS.usage,
       };
     } catch {
       return structuredClone(DEFAULTS);
@@ -94,33 +97,33 @@ export class Store {
       });
   }
 
-  flush() {
+  async flush() {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
+    const json = JSON.stringify(this.data, null, 2);
     const tmp = `${this.file}.${process.pid}.${++this.tmpSeq}.tmp`;
-    try {
-      fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2));
-      fs.renameSync(tmp, this.file);
-    } catch (err) {
-      console.error(`store: failed to flush ${this.file}:`, err);
+    this.writeChain = this.writeChain.then(async () => {
       try {
-        fs.unlinkSync(tmp);
-      } catch {
-        /* nothing to clean */
+        await fsp.writeFile(tmp, json);
+        await fsp.rename(tmp, this.file);
+      } catch (err) {
+        console.error(`store: failed to flush ${this.file}:`, err);
+        void fsp.unlink(tmp).catch(() => {});
       }
-    }
+    });
+    await this.writeChain;
   }
 
   get settings() {
-    return this.data.settings;
+    return structuredClone(this.data.settings);
   }
 
   setSettings(patch: Partial<StoreShape["settings"]>) {
     Object.assign(this.data.settings, patch);
     this.save();
-    return this.data.settings;
+    return this.settings;
   }
 
   alias(sessionId: string): string | undefined {
@@ -134,26 +137,28 @@ export class Store {
   }
 
   aliases(): Record<string, string> {
-    return this.data.aliases;
+    return structuredClone(this.data.aliases);
   }
 
   workspaces(): string[] {
-    return this.data.workspaces;
+    return this.data.workspaces.slice();
   }
 
   addWorkspace(cwd: string) {
     if (!this.data.workspaces.includes(cwd)) {
+      if (this.data.workspaces.length >= MAX_WORKSPACES) this.data.workspaces.shift();
       this.data.workspaces.push(cwd);
       this.save();
     }
   }
 
   agentSession(sessionId: string): AgentSessionRecord | undefined {
-    return this.data.agentSessions[sessionId];
+    const rec = this.data.agentSessions[sessionId];
+    return rec ? { ...rec } : undefined;
   }
 
   agentSessions(): Record<string, AgentSessionRecord> {
-    return this.data.agentSessions;
+    return structuredClone(this.data.agentSessions);
   }
 
   addAgentSession(sessionId: string, agent: string, cwd: string) {
@@ -179,6 +184,6 @@ export class Store {
   }
 
   usage(): UsageRecord[] {
-    return this.data.usage;
+    return this.data.usage.slice();
   }
 }
