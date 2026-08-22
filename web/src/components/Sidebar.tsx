@@ -36,7 +36,13 @@ export function sessionLabel(s: SessionState): string {
 }
 
 export default function Sidebar({ onLogout }: { onLogout: () => void }) {
-  const state = useStore();
+  const meta = useStore((s) => s.meta);
+  const sessionsById = useStore((s) => s.sessions);
+  const sidebarOpen = useStore((s) => s.ui.sidebarOpen);
+  const wsConnected = useStore((s) => s.wsConnected);
+  const activeSessionId = useStore((s) => s.activeSessionId);
+  const sessionsLoading = useStore((s) => s.sessionsLoading);
+  const sessionsLoaded = useStore((s) => s.sessionsLoaded);
   const [cwdInput, setCwdInput] = useState("");
   const [agent, setAgent] = useState<AgentId>("devin");
   const [filter, setFilter] = useState("");
@@ -46,14 +52,14 @@ export default function Sidebar({ onLogout }: { onLogout: () => void }) {
 
   const workspaces = useMemo(() => {
     const set = new Set<string>();
-    for (const w of state.meta?.workspaces ?? []) set.add(w);
-    for (const s of Object.values(state.sessions)) if (s.cwd) set.add(s.cwd);
-    if (state.meta?.primaryCwd) set.add(state.meta.primaryCwd);
+    for (const w of meta?.workspaces ?? []) set.add(w);
+    for (const s of Object.values(sessionsById)) if (s.cwd) set.add(s.cwd);
+    if (meta?.primaryCwd) set.add(meta.primaryCwd);
     return [...set].sort();
-  }, [state.meta, state.sessions]);
+  }, [meta, sessionsById]);
 
   const sessions = useMemo(() => {
-    const all = Object.values(state.sessions);
+    const all = Object.values(sessionsById);
     const filtered = filter.trim()
       ? all
           .map((s) => {
@@ -67,12 +73,12 @@ export default function Sidebar({ onLogout }: { onLogout: () => void }) {
           .map(({ s }) => s)
       : all;
     return filtered.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
-  }, [state.sessions, filter]);
+  }, [sessionsById, filter]);
 
-  const agents = state.meta?.agents;
+  const agents = meta?.agents;
 
   const submitNew = async () => {
-    const dir = cwdInput.trim() || state.meta?.primaryCwd || "";
+    const dir = cwdInput.trim() || meta?.primaryCwd || "";
     if (!dir || creating) return;
     setCreating(true);
     await createSession(dir, agent);
@@ -86,14 +92,14 @@ export default function Sidebar({ onLogout }: { onLogout: () => void }) {
     if (title) await renameSession(id, title);
   };
 
-  const loadingList = state.sessionsLoading && sessions.length === 0;
+  const loadingList = sessionsLoading && sessions.length === 0;
 
   return (
     <aside
       className={cn(
         "fixed left-0 bottom-0 top-[env(safe-area-inset-top)] z-40 flex w-70 flex-col border-r border-border bg-background transition-transform duration-200 ease-out",
         "md:static md:translate-x-0 md:top-0",
-        state.ui.sidebarOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full",
+        sidebarOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full",
       )}
     >
       {/* workspace header */}
@@ -103,9 +109,9 @@ export default function Sidebar({ onLogout }: { onLogout: () => void }) {
         <span
           className={cn(
             "size-1.5 rounded-full",
-            state.wsConnected ? "bg-emerald-500" : "animate-pulse bg-red-500",
+            wsConnected ? "bg-emerald-500" : "animate-pulse bg-red-500",
           )}
-          title={state.wsConnected ? "connected" : "reconnecting…"}
+          title={wsConnected ? "connected" : "reconnecting…"}
         />
       </div>
 
@@ -116,7 +122,7 @@ export default function Sidebar({ onLogout }: { onLogout: () => void }) {
             id="dc-cwd-input"
             className="tnum h-9 flex-1 border-transparent bg-secondary font-mono text-xs shadow-none focus-visible:border-input"
             list="dc-workspaces"
-            placeholder={state.meta?.primaryCwd ?? "/path/to/workspace"}
+            placeholder={meta?.primaryCwd ?? "/path/to/workspace"}
             value={cwdInput}
             onChange={(e) => setCwdInput(e.target.value)}
             onKeyDown={(e) => {
@@ -180,9 +186,9 @@ export default function Sidebar({ onLogout }: { onLogout: () => void }) {
           size="icon"
           className="size-6 text-muted-foreground"
           onClick={() => void refreshSessions()}
-          disabled={state.sessionsLoading}
+          disabled={sessionsLoading}
         >
-          {state.sessionsLoading ? (
+          {sessionsLoading ? (
             <Loader2Icon className="size-3.5 animate-spin" />
           ) : (
             <RefreshCwIcon className="size-3.5" />
@@ -200,7 +206,7 @@ export default function Sidebar({ onLogout }: { onLogout: () => void }) {
         )}
         {!loadingList && sessions.length === 0 && (
           <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-            {state.sessionsLoaded ? "No sessions yet — create one above." : "No sessions yet"}
+            {sessionsLoaded ? "No sessions yet — create one above." : "No sessions yet"}
           </div>
         )}
         {sessions.map((s, i) => (
@@ -212,7 +218,7 @@ export default function Sidebar({ onLogout }: { onLogout: () => void }) {
             className={cn(
               "group relative flex cursor-pointer items-center gap-1 rounded-lg border border-transparent px-2.5 py-2 transition-all duration-150",
               "hover:bg-secondary/70 active:scale-[0.99]",
-              s.sessionId === state.activeSessionId && "border-border bg-card shadow-[0_1px_2px_rgba(0,0,0,0.04)]",
+              s.sessionId === activeSessionId && "border-border bg-card shadow-[0_1px_2px_rgba(0,0,0,0.04)]",
             )}
             onClick={() => renamingId !== s.sessionId && selectSession(s.sessionId)}
             onKeyDown={(e) => {

@@ -20,6 +20,10 @@ import { CheckIcon, CopyIcon } from "lucide-react";
 const preprocessMarkdown = (text: string) =>
   escapeCurrencyDollars(normalizeMathDelimiters(text));
 
+const REMARK_PLUGINS = [remarkGfm, remarkMath];
+const REHYPE_PLUGINS = [rehypeKatex];
+const MERMAID_CONFIG = { mermaid: { SyntaxHighlighter: MermaidBlock } };
+
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { MermaidBlock } from "@/components/MermaidBlock";
 import { cn } from "@/lib/utils";
@@ -27,12 +31,12 @@ import { cn } from "@/lib/utils";
 const MarkdownTextImpl = () => {
   return (
     <MarkdownTextPrimitive
-      remarkPlugins={[remarkGfm, remarkMath]}
-      rehypePlugins={[rehypeKatex]}
+      remarkPlugins={REMARK_PLUGINS}
+      rehypePlugins={REHYPE_PLUGINS}
       preprocess={preprocessMarkdown}
       className="aui-md"
       components={defaultComponents}
-      componentsByLanguage={{ mermaid: { SyntaxHighlighter: MermaidBlock } }}
+      componentsByLanguage={MERMAID_CONFIG}
       defer
     />
   );

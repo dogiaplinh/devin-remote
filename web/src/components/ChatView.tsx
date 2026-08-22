@@ -172,13 +172,14 @@ function OverflowMenu({ session }: { session: SessionState }) {
 // ---- home (no session selected) ---------------------------------------------
 
 function Home() {
-  const state = useStore();
+  const sessions = useStore((s) => s.sessions);
+  const primaryCwd = useStore((s) => s.meta?.primaryCwd);
   const recent = useMemo(
     () =>
-      Object.values(state.sessions)
+      Object.values(sessions)
         .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))
         .slice(0, 5),
-    [state.sessions],
+    [sessions],
   );
 
   const newSession = () => {
@@ -188,7 +189,7 @@ function Home() {
       setTimeout(() => document.getElementById("dc-cwd-input")?.focus(), 50);
       return;
     }
-    const dir = state.meta?.primaryCwd;
+    const dir = primaryCwd;
     if (dir) void createSession(dir);
   };
 
@@ -280,9 +281,11 @@ function SetupBanner({ installed, authed, detail }: { installed: boolean; authed
   );
 }
 
-export default function ChatView({ session }: { session: SessionState | null }) {
-  const state = useStore();
-  const meta = state.meta;
+export default function ChatView() {
+  const meta = useStore((s) => s.meta);
+  const session = useStore((s) => (s.activeSessionId ? s.sessions[s.activeSessionId] ?? null : null));
+  const terminalOpen = useStore((s) => s.ui.terminalOpen);
+  const logOpen = useStore((s) => s.ui.logOpen);
   const setupNeeded = !!meta && (!meta.devin.installed || !meta.devin.authed);
   const title = session ? sessionLabel(session) : "Devin Remote";
 
@@ -317,8 +320,8 @@ export default function ChatView({ session }: { session: SessionState | null }) 
             tooltip="Terminals"
             variant="ghost"
             size="icon"
-            className={cn("size-9 text-muted-foreground", state.ui.terminalOpen && "bg-secondary text-foreground")}
-            onClick={() => setUi({ terminalOpen: !state.ui.terminalOpen })}
+            className={cn("size-9 text-muted-foreground", terminalOpen && "bg-secondary text-foreground")}
+            onClick={() => setUi({ terminalOpen: !terminalOpen })}
           >
             <SquareTerminalIcon className="size-4" />
           </TooltipIconButton>
@@ -328,8 +331,8 @@ export default function ChatView({ session }: { session: SessionState | null }) 
             tooltip="Agent log"
             variant="ghost"
             size="icon"
-            className={cn("size-9 text-muted-foreground", state.ui.logOpen && "bg-secondary text-foreground")}
-            onClick={() => setUi({ logOpen: !state.ui.logOpen })}
+            className={cn("size-9 text-muted-foreground", logOpen && "bg-secondary text-foreground")}
+            onClick={() => setUi({ logOpen: !logOpen })}
           >
             <ScrollTextIcon className="size-4" />
           </TooltipIconButton>

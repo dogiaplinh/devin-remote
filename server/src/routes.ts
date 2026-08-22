@@ -116,7 +116,15 @@ async function acpForSession(ctx: ApiContext, sessionId: string, rawCwd?: unknow
       { status: 409 },
     );
   }
-  const dir = (typeof rawCwd === "string" && rawCwd.trim() ? await resolveCwd(rawCwd, ctx) : undefined) ?? ctx.sessionCwd.get(sessionId);
+  const storedCwd = ctx.sessionCwd.get(sessionId);
+  let dir: string | undefined;
+  if (storedCwd) {
+    // Trust the directory already associated with this session; it may have aged
+    // out of the workspace list, but the session itself is still valid.
+    dir = await fs.realpath(storedCwd).catch(() => storedCwd);
+  } else if (typeof rawCwd === "string" && rawCwd.trim()) {
+    dir = await resolveCwd(rawCwd, ctx);
+  }
   if (!dir) throw Object.assign(new Error("unknown session — pass cwd"), { status: 400 });
   const acp = await ctx.manager.get(dir);
   ctx.sessionCwd.set(sessionId, dir);

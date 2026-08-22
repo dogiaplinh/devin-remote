@@ -45,10 +45,12 @@ function connect(): void {
     void refreshSessions();
     resyncActiveSession();
   };
+  ws.binaryType = "arraybuffer";
   ws.onmessage = (e) => {
+    if (typeof e.data !== "string") return; // ignore binary frames
     let ev: WsServerEvent;
     try {
-      ev = JSON.parse(String(e.data)) as WsServerEvent;
+      ev = JSON.parse(e.data) as WsServerEvent;
     } catch {
       return;
     }

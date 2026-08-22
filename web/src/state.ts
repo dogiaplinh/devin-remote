@@ -555,9 +555,17 @@ export function applySessionUpdate(
       default:
         break;
     }
-    // History replay must not bump recency — it would hoist every opened
-    // session to the top of the sidebar just for being viewed.
-    if (opts?.live !== false) d.updatedAt = new Date().toISOString();
+    // Only bump recency for turn-level events, not for token-by-token streaming.
+    if (
+      opts?.live !== false &&
+      (update.sessionUpdate === "user_message_chunk" ||
+        update.sessionUpdate === "tool_call" ||
+        update.sessionUpdate === "plan" ||
+        update.sessionUpdate === "session_info_update" ||
+        update.sessionUpdate === "prompt_done")
+    ) {
+      d.updatedAt = new Date().toISOString();
+    }
   });
 }
 

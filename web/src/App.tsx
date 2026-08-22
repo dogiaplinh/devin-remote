@@ -28,7 +28,12 @@ function applyTheme(theme: "dark" | "light" | "system"): void {
 }
 
 export default function App() {
-  const state = useStore();
+  const theme = useStore((s) => s.settings.theme);
+  const modal = useStore((s) => s.ui.modal);
+  const notice = useStore((s) => s.notice);
+  const sidebarOpen = useStore((s) => s.ui.sidebarOpen);
+  const terminalOpen = useStore((s) => s.ui.terminalOpen);
+  const logOpen = useStore((s) => s.ui.logOpen);
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -46,26 +51,26 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    applyTheme(state.settings.theme ?? "light");
-    if (state.settings.theme !== "system") return;
+    applyTheme(theme ?? "light");
+    if (theme !== "system") return;
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => applyTheme("system");
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
-  }, [state.settings.theme]);
+  }, [theme]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setUi({ modal: state.ui.modal === "palette" ? null : "palette" });
-      } else if (e.key === "Escape" && state.ui.modal) {
+        setUi({ modal: modal === "palette" ? null : "palette" });
+      } else if (e.key === "Escape" && modal) {
         setUi({ modal: null });
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [state.ui.modal]);
+  }, [modal]);
 
   if (authError) {
     return <main className="flex h-full items-center justify-center text-sm text-destructive">{authError}</main>;
@@ -103,12 +108,10 @@ export default function App() {
     );
   }
 
-  const active = state.activeSessionId ? state.sessions[state.activeSessionId] ?? null : null;
-
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full bg-background text-foreground">
-        {state.ui.sidebarOpen && (
+        {sidebarOpen && (
           <button
             className="fixed inset-0 z-30 bg-black/50 backdrop-blur-[2px] md:hidden"
             aria-label="close sidebar"
@@ -117,20 +120,20 @@ export default function App() {
         )}
         <Sidebar onLogout={() => void logout()} />
         <div className="flex min-w-0 flex-1 flex-col">
-          <ChatView session={active} />
+          <ChatView />
           <Suspense fallback={<DrawerSkeleton />}>
-            {state.ui.terminalOpen && <TerminalPanel />}
-            {state.ui.logOpen && <AgentLogDrawer />}
+            {terminalOpen && <TerminalPanel />}
+            {logOpen && <AgentLogDrawer />}
           </Suspense>
         </div>
         <Suspense fallback={null}>
-          {state.ui.modal === "settings" && <SettingsModal onLogout={logout} />}
-          {state.ui.modal === "usage" && <UsagePanel />}
-          {state.ui.modal === "palette" && <CommandPalette />}
+          {modal === "settings" && <SettingsModal onLogout={logout} />}
+          {modal === "usage" && <UsagePanel />}
+          {modal === "palette" && <CommandPalette />}
         </Suspense>
-        {state.notice && (
+        {notice && (
           <div className="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-border bg-popover px-3.5 py-2 text-sm text-popover-foreground shadow-xl">
-            <span className="max-w-[70vw] truncate">{state.notice}</span>
+            <span className="max-w-[70vw] truncate">{notice}</span>
             <button
               className="text-muted-foreground transition-colors hover:text-foreground"
               aria-label="dismiss"
