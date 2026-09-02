@@ -17,7 +17,7 @@ interface ParsedModel {
   adaptive: boolean;
 }
 
-const THINK_LEVELS = ["none", "low", "medium", "high", "xhigh", "max"] as const;
+const THINK_LEVELS = ["none", "low", "medium", "high", "xhigh", "max", "minimal"] as const;
 
 /** Split a model value into family + thinking-level + speed variant. */
 export function parseModel(opt: ConfigOptionValue): ParsedModel {
@@ -25,13 +25,13 @@ export function parseModel(opt: ConfigOptionValue): ParsedModel {
   let speed: string | null = null;
   let thinking: string | null = null;
 
-  const speedMatch = rest.match(/-(fast|priority)$/);
+  const speedMatch = rest.match(/[-_](fast|priority)$/);
   if (speedMatch) {
     speed = speedMatch[1];
     rest = rest.slice(0, -speedMatch[0].length);
   }
   // e.g. "claude-opus-4-5-think-high", "gpt-5.1-codex-max", "…-think-none"
-  const thinkMatch = rest.match(/-(?:think-)?(none|low|medium|high|xhigh|max)$/i);
+  const thinkMatch = rest.match(/[-_](?:think-)?(none|low|medium|high|xhigh|max|minimal)$/i);
   if (thinkMatch && THINK_LEVELS.includes(thinkMatch[1].toLowerCase() as (typeof THINK_LEVELS)[number])) {
     thinking = thinkMatch[1].toLowerCase();
     rest = rest.slice(0, -thinkMatch[0].length);
@@ -68,6 +68,7 @@ export default memo(function ModelPicker({ session }: { session: SessionState })
 
   const groups = useMemo(() => {
     if (!modelOpt?.options) return [];
+    console.log(modelOpt.options);
     const parsed = modelOpt.options.map(parseModel);
     const filtered = query.trim()
       ? parsed.filter(
@@ -79,12 +80,13 @@ export default memo(function ModelPicker({ session }: { session: SessionState })
       : parsed;
     const byFamily = new Map<string, ParsedModel[]>();
     for (const m of filtered) {
-      if (!byFamily.has(m.family)) byFamily.set(m.family, []);
-      byFamily.get(m.family)!.push(m);
+      let family = familyLabel(m.family, filtered);
+      if (!byFamily.has(family)) byFamily.set(family, []);
+      byFamily.get(family)!.push(m);
     }
     return [...byFamily.entries()].map(([family, models]) => ({
       family,
-      label: familyLabel(family, models),
+      label: family,
       models,
     }));
   }, [modelOpt, query]);

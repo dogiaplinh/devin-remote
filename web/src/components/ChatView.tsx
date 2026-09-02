@@ -313,8 +313,9 @@ export default function ChatView() {
           )}
         </div>
         <div className="flex-1" />
-        {session && <ModeSwitcher session={session} />}
-        {session && <Gauge usage={session.usage} />}
+        {/* {session && <ModeSwitcher session={session} />} */}
+        {session && <ModelPicker session={session} />}
+        {/* {session && <Gauge usage={session.usage} />} */}
         {session && (
           <TooltipIconButton
             tooltip="Terminals"
