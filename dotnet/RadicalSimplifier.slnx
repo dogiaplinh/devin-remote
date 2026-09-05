@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="RadicalSimplifier.Tests/RadicalSimplifier.Tests.csproj" />
+  <Project Path="RadicalSimplifier/RadicalSimplifier.csproj" />
+</Solution>
